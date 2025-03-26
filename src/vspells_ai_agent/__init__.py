@@ -25,46 +25,41 @@ def _extract(text: str, start: str, end: str) -> str:
     end_index = text.index(end, start_index)
     return text[start_index:end_index]
 
-class ClaudeAgent(jsonrpc.JsonRpcClient):
-    _anthropic: anthropic.AsyncAnthropic
+_client: jsonrpc.JsonRpcClient
+_anthropic: anthropic.AsyncAnthropic
+_logfile = open("/tmp/vspells-claude.log", "w", buffering=1)
 
-    def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-        self._anthropic = anthropic.AsyncAnthropic(
-            max_retries=10
-        )
-        self._logfile = open("/tmp/vspells-claude.log", "w", buffering=1)
-        super().__init__(reader, writer)
 
-    @jsonrpc.rpc_method("input")
-    async def input_request(
-        self,
-        *,
-        type: Literal["integer"] | Literal["string"] | list[str],
-        text: str,
-        filePath: str | None = None,
-        range: Range | None = None,
-    ) -> InputResponse:
-        if type == "integer":
-            possible_outputs = "an integer"
-        elif type == "string":
-            possible_outputs = "a string"
-        else:
-            possible_outputs = "\n".join(type)
+async def input_request(
+    *,
+    type: Literal["integer"] | Literal["string"] | list[str],
+    text: str,
+    filePath: str | None = None,
+    range: Range | None = None,
+) -> InputResponse:
+    global _anthropic
 
-        file_contents = ""
-        context = ""
+    if type == "integer":
+        possible_outputs = "an integer"
+    elif type == "string":
+        possible_outputs = "a string"
+    else:
+        possible_outputs = "\n".join(type)
 
-        if filePath is not None:
-            with open(filePath) as file:
-                file_lines = file.readlines()
-                file_contents = "".join(file_lines)
+    file_contents = ""
+    context = ""
 
-            if range is not None:
-                context = "".join(
-                    file_lines[range["start"]["line"] - 1 : range["end"]["line"]]
-                )
+    if filePath is not None:
+        with open(filePath) as file:
+            file_lines = file.readlines()
+            file_contents = "".join(file_lines)
 
-        msg = f"""Your task is to categorize a given function based on its role in parsing, handling, or processing data. You will receive file contents, context, a function name, and possible output categories. Analyze the information provided and categorize the function according to the given criteria.
+        if range is not None:
+            context = "".join(
+                file_lines[range["start"]["line"] - 1 : range["end"]["line"]]
+            )
+
+    msg = f"""Your task is to categorize a given function based on its role in parsing, handling, or processing data. You will receive file contents, context, a function name, and possible output categories. Analyze the information provided and categorize the function according to the given criteria.
 
 First, review the following file contents:
 
@@ -147,28 +142,35 @@ example_category
 This is your task:
 {text}
 """
-        response = await self._anthropic.messages.create(
-            model="claude-3-7-sonnet-20250219",
-            max_tokens=8192,
-            temperature=1,
-            system="You are an expert computer programmer specializing in static analysis.",
-            messages=[
-                {"role": "user", "content": [{"type": "text", "text": msg}]},
-                {"role": "assistant", "content": "<function_analysis>"},
-            ],
-        )
-        response_msg: str = response.content[0].text
-        reasoning = response_msg[:response_msg.find("</function_analysis>")].strip()
-        value = _extract(response_msg, "<result>", "</result>").strip()
-        json.dump({"prompt": text, "reasoning": reasoning, "value": value}, self._logfile)
-        self._logfile.write("\n")
-        return {"value": value}
+    response = await _anthropic.messages.create(
+        model="claude-3-7-sonnet-20250219",
+        max_tokens=8192,
+        temperature=1,
+        system="You are an expert computer programmer specializing in static analysis.",
+        messages=[
+            {"role": "user", "content": [{"type": "text", "text": msg}]},
+            {"role": "assistant", "content": "<function_analysis>"},
+        ],
+    )
+    response_msg: str = response.content[0].text
+    reasoning = response_msg[: response_msg.find("</function_analysis>")].strip()
+    value = _extract(response_msg, "<result>", "</result>").strip()
+    json.dump({"prompt": text, "reasoning": reasoning, "value": value}, _logfile)
+    _logfile.write("\n")
+    return {"value": value}
 
 
 async def _run(path: str):
+    global _client, _anthropic
+
     (reader, writer) = await asyncio.open_unix_connection(path)
-    client = ClaudeAgent(reader, writer)
-    await client.start()
+    _client = jsonrpc.JsonRpcClient(reader, writer)
+
+    _anthropic = anthropic.AsyncAnthropic(max_retries=10)
+
+    _client.rpc_method("input")(input_request)
+
+    await _client.start()
 
     # Keep the client running until interrupted
     try:
@@ -182,7 +184,7 @@ async def _run(path: str):
         raise
     finally:
         # Ensure we properly clean up
-        await client.stop()
+        await _client.stop()
 
 
 def main() -> None:

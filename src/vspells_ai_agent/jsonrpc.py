@@ -1,8 +1,7 @@
 import asyncio
 import inspect
 import json
-from abc import ABC
-from typing import TypedDict, Literal, NotRequired, Callable, Dict, ClassVar
+from typing import TypedDict, Literal, NotRequired, Callable
 
 
 class JsonRpcRequest(TypedDict):
@@ -37,17 +36,7 @@ JSONRPC_INVALID_PARAMS = -32602
 JSONRPC_INTERNAL_ERROR = -32603
 
 
-def rpc_method(method_name: str):
-    """Decorator to mark a method as an RPC method handler."""
-
-    def decorator(func):
-        func._rpc_method_name = method_name
-        return func
-
-    return decorator
-
-
-class JsonRpcClient(ABC):
+class JsonRpcClient:
     _reader: asyncio.StreamReader
     _writer: asyncio.StreamWriter
     _next_id = 0
@@ -55,12 +44,11 @@ class JsonRpcClient(ABC):
     _receive_task: asyncio.Task | None = None
     _message_queue: asyncio.Queue
     _running: bool = False
-    _rpc_methods: ClassVar[Dict[str, Callable]] = {}
+    _rpc_methods: dict[str, Callable] = {}
 
     def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         self._message_queue = asyncio.Queue()
         (self._reader, self._writer) = (reader, writer)
-        self._register_rpc_methods()
 
     async def start(self):
         """Start the client and message processing tasks"""
@@ -259,14 +247,12 @@ class JsonRpcClient(ABC):
             self._running = False
             raise
 
-    def _register_rpc_methods(self):
-        """Find and register all methods decorated with @rpc_method"""
-        for name, method in inspect.getmembers(
-            self.__class__, predicate=inspect.isfunction
-        ):
-            if hasattr(method, "_rpc_method_name"):
-                method_name = method._rpc_method_name
-                self._rpc_methods[method_name] = getattr(self, name)
+    def rpc_method(self, method_name: str):
+        def decorator(func):
+            self._rpc_methods[method_name] = func
+            return func
+
+        return decorator
 
     async def _handle_request(
         self, method: str, params: dict | list
