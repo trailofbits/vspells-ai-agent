@@ -1,10 +1,15 @@
 from . import jsonrpc
+from . import prompts
 
 import asyncio
-from typing import TypedDict, Literal
-import json
+from typing import TypedDict, Literal, NotRequired
 
-import anthropic
+from pydantic_ai import Agent
+
+import logfire
+
+logfire.configure()
+logfire.instrument_anthropic()
 
 
 class Position(TypedDict):
@@ -17,17 +22,31 @@ class Range(TypedDict):
     end: Position
 
 
+class FunctionCategoryProperties(TypedDict):
+    type: Literal["functionCategory"]
+    functionName: str
+
+
+class ReturnTypeProperties(TypedDict):
+    type: Literal["returnType"]
+    functionName: str
+
+
+class ArgumentTypeProperties(TypedDict):
+    type: Literal["argumentType"]
+    functionName: str
+    argumentIndex: int
+    argumentName: NotRequired[str]
+
+
 class InputResponse(TypedDict):
     value: int | str
+    isStdlib: bool | None
+    source: str
 
-def _extract(text: str, start: str, end: str) -> str:
-    start_index = text.index(start) + len(start)
-    end_index = text.index(end, start_index)
-    return text[start_index:end_index]
 
 _client: jsonrpc.JsonRpcClient
-_anthropic: anthropic.AsyncAnthropic
-_logfile = open("/tmp/vspells-claude.log", "w", buffering=1)
+_agent: Agent
 
 
 async def input_request(
@@ -36,15 +55,12 @@ async def input_request(
     text: str,
     filePath: str | None = None,
     range: Range | None = None,
+    properties: FunctionCategoryProperties
+    | ReturnTypeProperties
+    | ArgumentTypeProperties
+    | None = None,
 ) -> InputResponse:
-    global _anthropic
-
-    if type == "integer":
-        possible_outputs = "an integer"
-    elif type == "string":
-        possible_outputs = "a string"
-    else:
-        possible_outputs = "\n".join(type)
+    global _agent
 
     file_contents = ""
     context = ""
@@ -58,115 +74,53 @@ async def input_request(
             context = "".join(
                 file_lines[range["start"]["line"] - 1 : range["end"]["line"]]
             )
+    if properties is None:
+        return
 
-    msg = f"""Your task is to categorize a given function based on its role in parsing, handling, or processing data. You will receive file contents, context, a function name, and possible output categories. Analyze the information provided and categorize the function according to the given criteria.
-
-First, review the following file contents:
-
-<file_contents>
-{file_contents}
-</file_contents>
-
-Now, consider this additional context that may be relevant to your analysis:
-
-<context>
-{context}
-</context>
-
-Your goal is to analyze and categorize a function based on the following definitions and categories:
-
-1. Parser: Any function that takes arbitrary user input and produces structured output.
-2. Source: Any function that produces arbitrary user input.
-3. Sink: Any function that accepts potentially arbitrary user data and doesn't propagate it further.
-4. Nonparser: Any other kind of function that doesn't fit into the above categories.
-
-Additionally, consider these value types:
-- "data": Values subject to parsing.
-- "nodata": Values not subject to parsing.
-- "maybedata": Values that could contain either "data" or "nodata".
-
-The possible output values are:
-
-<possible_outputs>
-{possible_outputs}
-</possible_outputs>
-
-IMPORTANT: Focus on analyzing the function's behavior rather than its name. The name itself should not be the primary factor in your categorization.
-
-Please conduct your analysis using the following steps:
-
-1. List all relevant code snippets from the file_contents that pertain to the function being analyzed.
-2. Summarize the function's overall purpose based on the given context and file contents.
-3. Examine the function's behavior based on the given context and file contents.
-4. Consider how the function interacts with other parts of the system.
-5. Consider how well the function fits into each category (Parser, Source, Sink, Nonparser).
-6. Evaluate how the function might handle input.
-7. Assess how the function might handle output.
-8. Determine which value type (data, nodata, maybedata) the function is likely to work with.
-9. Consider edge cases and potential ambiguities.
-10. Make a final determination on the most appropriate category.
-11. State any assumptions made during the analysis.
-12. Provide a confidence rating (0-100%) for your final categorization.
-
-For each step of your analysis:
-
-- Quote relevant parts of the file_contents and context that support your analysis.
-- For steps 5 and 8, list arguments for and against each category or value type, provide a confidence level (0-100%) for each, and number each piece of evidence.
-- Provide detailed reasoning for your conclusions.
-- For step 9, explicitly state any edge cases or ambiguities you've identified.
-
-Wrap your analysis in <function_analysis> tags. After completing your analysis, provide your final categorization in <result> tags. The <result> tag should contain ONLY one of the values from the <possible_outputs> list.
-
-Here's an example of how your response should be structured:
-
-<function_analysis>
-1. Relevant code snippets:
-   [List code snippets here]
-
-2. Function purpose summary:
-   The function appears to...
-
-3. Function behavior examination:
-   Relevant quote from file_contents: "..."
-   Relevant quote from context: "..."
-   The function appears to...
-
-[Steps 4-12 following the same structure]
-
-</function_analysis>
-
-<result>
-example_category
-</result>
-
-This is your task:
-{text}
-"""
-    response = await _anthropic.messages.create(
-        model="claude-3-7-sonnet-20250219",
-        max_tokens=8192,
-        temperature=1,
-        system="You are an expert computer programmer specializing in static analysis.",
-        messages=[
-            {"role": "user", "content": [{"type": "text", "text": msg}]},
-            {"role": "assistant", "content": "<function_analysis>"},
-        ],
-    )
-    response_msg: str = response.content[0].text
-    reasoning = response_msg[: response_msg.find("</function_analysis>")].strip()
-    value = _extract(response_msg, "<result>", "</result>").strip()
-    json.dump({"prompt": text, "reasoning": reasoning, "value": value}, _logfile)
-    _logfile.write("\n")
-    return {"value": value}
+    if properties["type"] == "functionCategory":
+        response = await _agent.run(
+            prompts.function_category(
+                file_contents, context, properties["functionName"]
+            ),
+            result_type=prompts.CategoryAgentResponse,
+        )
+        return {
+            "isStdlib": response.data.isStdlib,
+            "source": "AI",
+            "value": response.data.response,
+        }
+    elif properties["type"] == "returnType":
+        response = await _agent.run(
+            prompts.return_type(file_contents, context, properties["functionName"]),
+            result_type=prompts.ReturnTypeAgentResponse,
+        )
+        return {"source": "AI", "value": response.data.response, "isStdlib": None}
+    elif properties["type"] == "argumentType":
+        response = await _agent.run(
+            prompts.argument_type(
+                file_contents,
+                context,
+                properties["functionName"],
+                properties["argumentIndex"],
+            ),
+            result_type=prompts.ArgumentTypeAgentResponse,
+        )
+        return {"source": "AI", "value": response.data.response, "isStdlib": None}
 
 
 async def _run(path: str):
-    global _client, _anthropic
+    global _client, _agent
 
     (reader, writer) = await asyncio.open_unix_connection(path)
     _client = jsonrpc.JsonRpcClient(reader, writer)
 
-    _anthropic = anthropic.AsyncAnthropic(max_retries=10)
+    _agent = Agent(
+        "anthropic:claude-3-7-sonnet-latest",
+        system_prompt="You are an expert computer programmer specializing in static analysis.",
+        result_retries=5,
+        retries=5,
+        instrument=True,
+    )
 
     _client.rpc_method("input")(input_request)
 
