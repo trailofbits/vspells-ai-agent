@@ -69,7 +69,7 @@ async def input_request(
     if filePath is not None:
         with open(filePath) as file:
             file_lines = file.readlines()
-            file_contents = "".join(file_lines)
+            file_contents = "    ".join(file_lines)
 
         if range is not None:
             context = "".join(
