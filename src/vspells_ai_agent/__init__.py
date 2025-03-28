@@ -5,6 +5,7 @@ import asyncio
 from typing import TypedDict, Literal, NotRequired
 
 from pydantic_ai import Agent
+from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
 import logfire
 
@@ -117,6 +118,7 @@ async def _run(path: str):
     _agent = Agent(
         "anthropic:claude-3-7-sonnet-latest",
         system_prompt="You are an expert computer programmer specializing in static analysis.",
+        tools=[duckduckgo_search_tool()],
         result_retries=5,
         retries=5,
         instrument=True,
