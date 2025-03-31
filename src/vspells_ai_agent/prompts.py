@@ -1,5 +1,16 @@
-from pydantic import BaseModel, Field
-from typing import Literal
+from typing import Literal, TypedDict
+
+
+class FunctionModel(TypedDict):
+    category: Literal["sink", "source", "parser", "nonparser"]
+    return_type: Literal["data", "nodata", "maybedata"]
+    arguments: list[Literal["data", "nodata", "maybedata"]]
+    is_stdlib: bool
+
+
+class Response(FunctionModel):
+    reasoning: str
+
 
 boilerplate = """Your goal is to analyze and categorize a function based on the following definitions and categories:
 
@@ -224,19 +235,13 @@ Here are some examples of functions and their categories, return and argument ty
 """
 
 
-class CategoryAgentResponse(BaseModel):
-    reasoning: str = Field(
-        description="The reasoning steps that made you decide on the final answer"
-    )
-    response: Literal["nonparser", "parser", "sink", "source"] = Field(
-        description="The final answer on what category this function belongs to"
-    )
-    isStdlib: bool = Field(
-        description="Whether or not this function is part of the standard libraries of this system"
-    )
-
-
-def function_category(file_contents: str, context: str, function_name: str, file_path: str | None):
+def analyze_function(
+    file_contents: str,
+    context: str,
+    function_name: str,
+    no_args: int,
+    file_path: str | None,
+):
     return f"""Your task is to categorize a given function based on its role in parsing, handling, or processing data. You will receive file contents, context, a function name, and possible output categories. Analyze the information provided and categorize the function according to the given criteria.
 
 First, review the following file contents:
@@ -247,7 +252,7 @@ First, review the following file contents:
 
 </file_contents>
 
-{ f"The path to this file is `{file_path}`" if file_path else "" }
+{f"The path to this file is `{file_path}`" if file_path else ""}
 
 Now, consider this additional context that may be relevant to your analysis:
 
@@ -259,90 +264,14 @@ Now, consider this additional context that may be relevant to your analysis:
 
 {boilerplate}
 
-What category does the function `{function_name}` belong to?
+Consider the function `{function_name}`, which takes {no_args} argument(s) as input.
 
-Your response should be a JSON object containing:
-    - "reasoning" field containing a string describing your reasoning
-    - "response" field containing one of "nonparser", "parser", "sink", "source"
-    - "isStdlib" field containing a boolean whether or not this function is part of the standard libraries of this system
-"""
+Please answer the following questions about `{function_name}`:
 
+- What is the reasoning that led you to your answers?
+- What category does `{function_name}` belong to?
+- What data type does `{function_name}` return?
+- What data types are the {no_args} argument(s) passed to `{function_name}`?
+- Is `{function_name}` part of the standard libraries of this system?
 
-class ReturnTypeAgentResponse(BaseModel):
-    reasoning: str = Field(
-        description="The reasoning steps that made you decide on the final answer"
-    )
-    response: Literal["data", "nodata", "maybedata"] = Field(
-        description="The final answer on what type this function returns"
-    )
-
-
-def return_type(file_contents: str, context: str, function_name: str, file_path: str | None):
-    return f"""Your task is to decide a given function's return type based on its role in parsing, handling, or processing data. You will receive file contents, context, a function name, and possible output categories. Analyze the information provided and categorize the function according to the given criteria.
-
-First, review the following file contents:
-
-<file_contents>
-
-{file_contents}
-
-</file_contents>
-
-{ f"The path to this file is `{file_path}`" if file_path else "" }
-
-Now, consider this additional context that may be relevant to your analysis:
-
-<context>
-
-{context}
-
-</context>
-
-{boilerplate}
-
-What type does the function `{function_name}` return?
-
-Your response should be a JSON object containing:
-    - "reasoning" field containing a string describing your reasoning
-    - "response" field containing one of "data", "nodata", "maybedata"
-"""
-
-
-class ArgumentTypeAgentResponse(BaseModel):
-    reasoning: str = Field(
-        description="The reasoning steps that made you decide on the final answer"
-    )
-    response: Literal["data", "nodata", "maybedata"] = Field(
-        description="The final answer on what type this argument is"
-    )
-
-
-def argument_type(file_contents: str, context: str, function_name: str, index: int, file_path: str | None):
-    return f"""Your task is to decide a given function's argument types based on its role in parsing, handling, or processing data. You will receive file contents, context, a function name, and possible output categories. Analyze the information provided and categorize the function according to the given criteria.
-
-First, review the following file contents:
-
-<file_contents>
-
-{file_contents}
-
-</file_contents>
-
-{ f"The path to this file is `{file_path}`" if file_path else "" }
-
-Now, consider this additional context that may be relevant to your analysis:
-
-<context>
-
-{context}
-
-</context>
-
-{boilerplate}
-
-What is the type of argument #{index} of the function `{function_name}`?
-
-Your response should be a JSON object containing:
-    - "reasoning" field containing a string describing your reasoning
-    - "response" field containing one of "data", "nodata", "maybedata"
 """

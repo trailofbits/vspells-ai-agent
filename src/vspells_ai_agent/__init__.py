@@ -4,14 +4,15 @@ from . import lsp_client
 
 import asyncio
 from itertools import count
-from typing import TypedDict, Literal, NotRequired
+from typing import TypedDict, Literal
+from dataclasses import dataclass
 
-from pydantic_ai import Agent
+from pydantic_ai import Agent, RunContext, ModelRetry
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 
 import logfire
 
-logfire.configure()
+logfire.configure(scrubbing=False)
 logfire.instrument_anthropic()
 
 
@@ -25,53 +26,39 @@ class Range(TypedDict):
     end: Position
 
 
-class FunctionCategoryProperties(TypedDict):
-    type: Literal["functionCategory"]
-    functionName: str
+class FunctionModel(TypedDict):
+    category: Literal["sink", "source", "parser", "nonparser"]
+    return_type: Literal["data", "nodata", "maybedata"]
+    arguments: list[Literal["data", "nodata", "maybedata"]]
+    is_stdlib: bool
 
 
-class ReturnTypeProperties(TypedDict):
-    type: Literal["returnType"]
-    functionName: str
+class Response(FunctionModel):
+    reasoning: str
 
 
-class ArgumentTypeProperties(TypedDict):
-    type: Literal["argumentType"]
-    functionName: str
-    argumentIndex: int
-    argumentName: NotRequired[str]
-
-
-class InputResponse(TypedDict):
-    value: int | str
-    isStdlib: bool | None
-    source: str
-
-
+@dataclass(kw_only=True)
 class Context:
     lsp: jsonrpc.JsonRpcClient
+    expected_arg_no: int
 
 
 _client: jsonrpc.JsonRpcClient
 _clangd: jsonrpc.JsonRpcClient
-_agent: Agent[Context]
-_context = Context()
+_agent: Agent[Context, Response]
+
 
 async def input_request(
     *,
-    type: Literal["integer"] | Literal["string"] | list[str],
-    text: str,
+    functionName: str,
+    numberOfArguments: int,
     filePath: str | None = None,
     range: Range | None = None,
-    properties: FunctionCategoryProperties
-    | ReturnTypeProperties
-    | ArgumentTypeProperties
-    | None = None,
-) -> InputResponse:
-    global _agent, _context
+) -> FunctionModel:
+    global _agent, _context, _clangd
 
     file_contents = ""
-    context = ""
+    usage_context = ""
 
     if filePath is not None:
         with open(filePath) as file:
@@ -80,61 +67,34 @@ async def input_request(
             file_contents = "    ".join(file_lines_nos)
 
         if range is not None:
-            context = "".join(
+            usage_context = "".join(
                 file_lines[range["start"]["line"] - 1 : range["end"]["line"]]
             )
-    if properties is None:
-        return
 
-    if properties["type"] == "functionCategory":
-        response = await _agent.run(
-            prompts.function_category(
-                file_contents, context, properties["functionName"], filePath
-            ),
-            result_type=prompts.CategoryAgentResponse,
-            deps=_context,
-        )
-        return {
-            "isStdlib": response.data.isStdlib,
-            "source": "AI",
-            "value": response.data.response,
-        }
-    elif properties["type"] == "returnType":
-        response = await _agent.run(
-            prompts.return_type(
-                file_contents, context, properties["functionName"], filePath
-            ),
-            result_type=prompts.ReturnTypeAgentResponse,
-            deps=_context,
-        )
-        return {"source": "AI", "value": response.data.response, "isStdlib": None}
-    elif properties["type"] == "argumentType":
-        response = await _agent.run(
-            prompts.argument_type(
-                file_contents,
-                context,
-                properties["functionName"],
-                properties["argumentIndex"],
-                filePath,
-            ),
-            result_type=prompts.ArgumentTypeAgentResponse,
-            deps=_context,
-        )
-        return {"source": "AI", "value": response.data.response, "isStdlib": None}
+    ctx = Context(
+        lsp=_clangd,
+        expected_arg_no=numberOfArguments,
+    )
+
+    res = await _agent.run(
+        prompts.analyze_function(
+            file_contents, usage_context, functionName, numberOfArguments, filePath
+        ),
+        deps=ctx,
+    )
+    return res.data
 
 
 async def _run(path: str):
-    global _client, _agent, _clangd, _context
+    global _client, _agent, _clangd
 
     clangd_proc = await asyncio.create_subprocess_exec(
         "clangd",
-        "--log=verbose",
         stdin=asyncio.subprocess.PIPE,
         stdout=asyncio.subprocess.PIPE,
     )
 
     _clangd = jsonrpc.JsonRpcClient(clangd_proc.stdout, clangd_proc.stdin)
-    _context.lsp = _clangd
 
     await _clangd.start()
 
@@ -149,10 +109,25 @@ async def _run(path: str):
         system_prompt="You are an expert computer programmer specializing in static analysis.",
         tools=tools,
         deps_type=jsonrpc.JsonRpcClient,
+        result_type=Response,
         result_retries=5,
         retries=5,
         instrument=True,
     )
+
+    @_agent.result_validator
+    def validate_result(ctx: RunContext[Context], result: Response) -> Response:
+        actual_args_no = len(result["arguments"])
+        expected_args_no = ctx.deps.expected_arg_no
+        if actual_args_no > expected_args_no:
+            raise ModelRetry(
+                f"Too many argument types: expected {expected_args_no} but got {actual_args_no}"
+            )
+        elif actual_args_no < expected_args_no:
+            raise ModelRetry(
+                f"Not enough argument types: expected {expected_args_no} but got {actual_args_no}"
+            )
+        return result
 
     _client.rpc_method("input")(input_request)
 

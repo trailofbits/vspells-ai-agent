@@ -1,7 +1,7 @@
 from .jsonrpc import JsonRpcClient
 
 from itertools import count
-from pydantic_ai import RunContext, Tool, AgentRunError
+from pydantic_ai import RunContext, Tool, ModelRetry
 from typing import TypedDict, NotRequired, Protocol
 
 
@@ -57,12 +57,14 @@ class TextDocumentIdentifier(TypedDict):
     uri: str
     """The text document's URI. Includes protocol (e.g. file:// )"""
 
+
 class LSPContext(Protocol):
     lsp: JsonRpcClient
 
+
 async def openDocument(client: JsonRpcClient, uri: str):
     if not uri.startswith("file://"):
-        raise AgentRunError("URIs must start with a protocol name (e.g. file://)")
+        raise ModelRetry("URIs must start with a protocol name (e.g. file://)")
     with open(uri[len("file://") :]) as file:
         text = file.read()
     await client.send_notification(
@@ -84,8 +86,8 @@ async def gotoDeclaration(
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve the declaration location of a symbol at a given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
+    await openDocument(ctx.deps.lsp, textDocument["uri"])
     try:
-        await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/declaration",
             {
@@ -94,7 +96,7 @@ async def gotoDeclaration(
             },
         )
     except Exception as ex:
-        raise AgentRunError(str(ex))
+        raise ModelRetry(str(ex)) from ex
 
 
 async def gotoDefinition(
@@ -103,8 +105,8 @@ async def gotoDefinition(
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve the definition location of a symbol at a given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
+    await openDocument(ctx.deps.lsp, textDocument["uri"])
     try:
-        await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/definition",
             {
@@ -113,7 +115,7 @@ async def gotoDefinition(
             },
         )
     except Exception as ex:
-        raise AgentRunError(str(ex))
+        raise ModelRetry(str(ex)) from ex
 
 
 async def gotoTypeDefinition(
@@ -122,8 +124,8 @@ async def gotoTypeDefinition(
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve the type definition location of a symbol at a given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
+    await openDocument(ctx.deps.lsp, textDocument["uri"])
     try:
-        await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/typeDefinition",
             {
@@ -132,7 +134,7 @@ async def gotoTypeDefinition(
             },
         )
     except Exception as ex:
-        raise AgentRunError(str(ex))
+        raise ModelRetry(str(ex)) from ex
 
 
 async def gotoImplementation(
@@ -141,8 +143,8 @@ async def gotoImplementation(
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve the implementation location of a symbol at a given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
+    await openDocument(ctx.deps.lsp, textDocument["uri"])
     try:
-        await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/implementation",
             {
@@ -151,7 +153,7 @@ async def gotoImplementation(
             },
         )
     except Exception as ex:
-        raise AgentRunError(str(ex))
+        raise ModelRetry(str(ex)) from ex
 
 
 async def findReferences(
@@ -160,8 +162,8 @@ async def findReferences(
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve project-wide references for the symbol denoted by the given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
+    await openDocument(ctx.deps.lsp, textDocument["uri"])
     try:
-        await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/implementation",
             {
@@ -170,20 +172,20 @@ async def findReferences(
             },
         )
     except Exception as ex:
-        raise AgentRunError(str(ex))
+        raise ModelRetry(str(ex)) from ex
 
 
 async def readFile(ctx: RunContext[LSPContext], uri: str, range: Range):
     """Reads the contents of a file. Remember all URIs must start with a protocol (e.g. file:// )"""
     if not uri.startswith("file://"):
-        raise AgentRunError("URIs must start with a protocol name (e.g. file://)")
+        raise ModelRetry("URIs must start with a protocol name (e.g. file://)")
     try:
         with open(uri[len("file://") :]) as file:
             lines = file.readlines()
             lines_nos = list(map(lambda x: f"{x[0]}: {x[1]}", zip(count(), lines)))
             return "    ".join(lines_nos[range["start"]["line"] : range["end"]["line"]])
     except Exception as ex:
-        raise AgentRunError(str(ex))
+        raise ModelRetry(str(ex)) from ex
 
 
 async def initialize(lsp: LSPContext) -> list[Tool[LSPContext]]:
