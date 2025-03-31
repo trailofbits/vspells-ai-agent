@@ -76,13 +76,19 @@ async def input_request(
         expected_arg_no=numberOfArguments,
     )
 
-    res = await _agent.run(
-        prompts.analyze_function(
-            file_contents, usage_context, functionName, numberOfArguments, filePath
-        ),
-        deps=ctx,
-    )
-    return res.data
+    with logfire.span("Analyze {function=}", function=functionName):
+        return (
+            await _agent.run(
+                prompts.analyze_function(
+                    file_contents,
+                    usage_context,
+                    functionName,
+                    numberOfArguments,
+                    filePath,
+                ),
+                deps=ctx,
+            )
+        ).data
 
 
 async def _run(path: str):
