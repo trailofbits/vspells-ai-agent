@@ -236,7 +236,7 @@ class JsonRpcClient:
                             future = self._pending_requests.pop(req_id)
                             if not future.done():
                                 future.set_exception(
-                                    Exception(body["error"]["message"])
+                                    RuntimeError(body["error"]["message"])
                                 )
                 finally:
                     self._message_queue.task_done()
@@ -290,7 +290,7 @@ class JsonRpcClient:
             "code": JSONRPC_METHOD_NOT_FOUND,
             "message": f"Method {method} not found",
         }
-        raise Exception(error["message"])
+        raise RuntimeError(error["message"])
 
     async def handle_notification(self, method: str, params: dict | list):
         """Handle an incoming JSON-RPC notification.
@@ -346,7 +346,7 @@ class JsonRpcClient:
         self._pending_requests[req_id] = future
 
         # Create a task for the write operation to avoid blocking
-        await self._write_body(request)
+        await self._write_response(request)
 
         # Create a timeout for the request
         try:
@@ -356,3 +356,17 @@ class JsonRpcClient:
             if req_id in self._pending_requests:
                 self._pending_requests.pop(req_id)
             raise TimeoutError(f"Request {method} timed out after 30 seconds")
+
+    async def send_notification(self, method: str, params: dict | list):
+        """Send a notification"""
+        if not self._running:
+            raise RuntimeError("Client not running. Call start() first.")
+
+        request: JsonRpcRequest = {
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        }
+
+        # Create a task for the write operation to avoid blocking
+        await self._write_response(request)

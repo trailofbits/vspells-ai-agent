@@ -64,57 +64,57 @@ Here are some examples of functions and their categories, return and argument ty
 
     # char * fgets(char * restrict str, int size, FILE * restrict stream);
     - function: fgets
-    model:
-        return_type: data
-        arguments:
-        - data    # char * restrict str
-        - nodata  # int size
-        - nodata  # FILE * restrict stream
-        category: source
+      model:
+          return_type: data
+          arguments:
+          - data    # char * restrict str
+          - nodata  # int size
+          - nodata  # FILE * restrict stream
+          category: source
 
     # size_t fread(void * restrict buffer, size_t size, size_t count, FILE * restrict stream);
     - function: fread
-    model:
-        return_type: nodata
-        arguments:
-        - data    # void * restrict buffer
-        - nodata  # size_t size
-        - nodata  # size_t count
-        - nodata  # FILE * restrict stream
-        category: source
+      model:
+          return_type: nodata
+          arguments:
+          - data    # void * restrict buffer
+          - nodata  # size_t size
+          - nodata  # size_t count
+          - nodata  # FILE * restrict stream
+          category: source
 
     # char * gets(char * str);
     - function: gets
-    model:
-        return_type: data
-        arguments:
-        - data    # char * str
-        category: source
+      model:
+          return_type: data
+          arguments:
+          - data    # char * str
+          category: source
 
     # char * gets_s(char * str, rsize_t n);
     - function: gets_s
-    model:
-        return_type: data
-        arguments:
-        - data    # char * str
-        - nodata  # rsize_t n
-        category: source
+      model:
+          return_type: data
+          arguments:
+          - data    # char * str
+          - nodata  # rsize_t n
+          category: source
 
     # int getchar(void);
     - function: getchar
-    model:
-        return_type: data
-        arguments: []
-        category: source
+      model:
+          return_type: data
+          arguments: []
+          category: source
 
     # int scanf(const char * restrict format, ...);
     - function: scanf
-    model:
-        return_type: nodata
-        arguments:
-        - nodata  # const char * restrict format
-        - data    # ...
-        category: source
+      model:
+          return_type: nodata
+          arguments:
+          - nodata  # const char * restrict format
+          - data    # ...
+          category: source
 
     #
     # Parser data sinks
@@ -122,47 +122,47 @@ Here are some examples of functions and their categories, return and argument ty
 
     # int printf(const char * restrict format, ...);
     - function: printf
-    model:
-        return_type: nodata
-        arguments:
-        - maybedata  # const char * restrict format
-        - maybedata # ...
-        category: sink
+      model:
+          return_type: nodata
+          arguments:
+          - maybedata  # const char * restrict format
+          - maybedata # ...
+          category: sink
 
     # int fprintf(FILE * restrict stream, const char * restrict format, ...);
     - function: fprintf
-    model:
-        return_type: nodata
-        arguments:
-        - nodata  # FILE * restrict stream
-        - maybedata # const char * restrict format
-        - maybedata # ...
-        category: sink
+      model:
+          return_type: nodata
+          arguments:
+          - nodata  # FILE * restrict stream
+          - maybedata # const char * restrict format
+          - maybedata # ...
+          category: sink
 
     # void perror(const char *s);
     - function: perror
-    model:
-        return_type: nodata
-        arguments:
-        - maybedata  # const char *s
-        category: sink
+      model:
+          return_type: nodata
+          arguments:
+          - maybedata  # const char *s
+          category: sink
 
     # void free(void * ptr);
     - function: free
-    model:
-        return_type: nodata
-        arguments:
-        - maybedata  # void * ptr
-        category: sink
+      model:
+          return_type: nodata
+          arguments:
+          - maybedata  # void * ptr
+          category: sink
 
     # FILE * fopen(const char * restrict filename, const char * restrict mode);
     - function: fopen
-    model:
-        return_type: nodata
-        arguments:
-        - maybedata  # const char * restrict filename
-        - maybedata  # const char * restrict mode
-        category: sink
+      model:
+          return_type: nodata
+          arguments:
+          - maybedata  # const char * restrict filename
+          - maybedata  # const char * restrict mode
+          category: sink
 
     #
     # Parser functions
@@ -170,19 +170,19 @@ Here are some examples of functions and their categories, return and argument ty
 
     # int isspace(int c);
     - function: isspace
-    model:
-        return_type: nodata
-        arguments:
-        - data  # int c
-        category: parser
+      model:
+          return_type: nodata
+          arguments:
+          - data  # int c
+          category: parser
 
     # int isdigit(int c);
     - function: isdigit
-    model:
-        return_type: nodata
-        arguments:
-        - data  # int c
-        category: parser
+      model:
+          return_type: nodata
+          arguments:
+          - data  # int c
+          category: parser
 
     #
     # Non-parser functions
@@ -190,36 +190,36 @@ Here are some examples of functions and their categories, return and argument ty
 
     # void exit(int status);
     - function: exit
-    model:
-        return_type: nodata
-        arguments:
-        - nodata  # int status
-        category: nonparser
+      model:
+          return_type: nodata
+          arguments:
+          - nodata  # int status
+          category: nonparser
 
     # void * malloc(size_t size);
     - function: malloc
-    model:
-        return_type: nodata
-        arguments:
-        - nodata  # size_t size
-        category: nonparser
+      model:
+          return_type: nodata
+          arguments:
+          - nodata  # size_t size
+          category: nonparser
 
     # void fclose(FILE * stream);
     - function: fclose
-    model:
-        return_type: nodata
-        arguments:
-        - nodata  # FILE * stream
-        category: nonparser
+      model:
+          return_type: nodata
+          arguments:
+          - nodata  # FILE * stream
+          category: nonparser
 
     - function: main
-    model:
-        return_type: nodata
-        arguments:
-        - nodata  # int argc
-        - data  # char * argv[]
-        - data  # char * envp[]
-        category: nonparser
+      model:
+          return_type: nodata
+          arguments:
+          - nodata  # int argc
+          - data  # char * argv[]
+          - data  # char * envp[]
+          category: nonparser
 
 """
 
@@ -236,7 +236,7 @@ class CategoryAgentResponse(BaseModel):
     )
 
 
-def function_category(file_contents: str, context: str, function_name: str):
+def function_category(file_contents: str, context: str, function_name: str, file_path: str | None):
     return f"""Your task is to categorize a given function based on its role in parsing, handling, or processing data. You will receive file contents, context, a function name, and possible output categories. Analyze the information provided and categorize the function according to the given criteria.
 
 First, review the following file contents:
@@ -246,6 +246,8 @@ First, review the following file contents:
 {file_contents}
 
 </file_contents>
+
+{ f"The path to this file is `{file_path}`" if file_path else "" }
 
 Now, consider this additional context that may be relevant to your analysis:
 
@@ -275,7 +277,7 @@ class ReturnTypeAgentResponse(BaseModel):
     )
 
 
-def return_type(file_contents: str, context: str, function_name: str):
+def return_type(file_contents: str, context: str, function_name: str, file_path: str | None):
     return f"""Your task is to decide a given function's return type based on its role in parsing, handling, or processing data. You will receive file contents, context, a function name, and possible output categories. Analyze the information provided and categorize the function according to the given criteria.
 
 First, review the following file contents:
@@ -285,6 +287,8 @@ First, review the following file contents:
 {file_contents}
 
 </file_contents>
+
+{ f"The path to this file is `{file_path}`" if file_path else "" }
 
 Now, consider this additional context that may be relevant to your analysis:
 
@@ -313,7 +317,7 @@ class ArgumentTypeAgentResponse(BaseModel):
     )
 
 
-def argument_type(file_contents: str, context: str, function_name: str, index: int):
+def argument_type(file_contents: str, context: str, function_name: str, index: int, file_path: str | None):
     return f"""Your task is to decide a given function's argument types based on its role in parsing, handling, or processing data. You will receive file contents, context, a function name, and possible output categories. Analyze the information provided and categorize the function according to the given criteria.
 
 First, review the following file contents:
@@ -323,6 +327,8 @@ First, review the following file contents:
 {file_contents}
 
 </file_contents>
+
+{ f"The path to this file is `{file_path}`" if file_path else "" }
 
 Now, consider this additional context that may be relevant to your analysis:
 

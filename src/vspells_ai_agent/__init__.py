@@ -1,7 +1,9 @@
 from . import jsonrpc
 from . import prompts
+from . import lsp_client
 
 import asyncio
+from itertools import count
 from typing import TypedDict, Literal, NotRequired
 
 from pydantic_ai import Agent
@@ -46,9 +48,14 @@ class InputResponse(TypedDict):
     source: str
 
 
-_client: jsonrpc.JsonRpcClient
-_agent: Agent
+class Context:
+    lsp: jsonrpc.JsonRpcClient
 
+
+_client: jsonrpc.JsonRpcClient
+_clangd: jsonrpc.JsonRpcClient
+_agent: Agent[Context]
+_context = Context()
 
 async def input_request(
     *,
@@ -61,7 +68,7 @@ async def input_request(
     | ArgumentTypeProperties
     | None = None,
 ) -> InputResponse:
-    global _agent
+    global _agent, _context
 
     file_contents = ""
     context = ""
@@ -69,7 +76,8 @@ async def input_request(
     if filePath is not None:
         with open(filePath) as file:
             file_lines = file.readlines()
-            file_contents = "    ".join(file_lines)
+            file_lines_nos = map(lambda x: f"{x[0]}: {x[1]}", zip(count(), file_lines))
+            file_contents = "    ".join(file_lines_nos)
 
         if range is not None:
             context = "".join(
@@ -81,9 +89,10 @@ async def input_request(
     if properties["type"] == "functionCategory":
         response = await _agent.run(
             prompts.function_category(
-                file_contents, context, properties["functionName"]
+                file_contents, context, properties["functionName"], filePath
             ),
             result_type=prompts.CategoryAgentResponse,
+            deps=_context,
         )
         return {
             "isStdlib": response.data.isStdlib,
@@ -92,8 +101,11 @@ async def input_request(
         }
     elif properties["type"] == "returnType":
         response = await _agent.run(
-            prompts.return_type(file_contents, context, properties["functionName"]),
+            prompts.return_type(
+                file_contents, context, properties["functionName"], filePath
+            ),
             result_type=prompts.ReturnTypeAgentResponse,
+            deps=_context,
         )
         return {"source": "AI", "value": response.data.response, "isStdlib": None}
     elif properties["type"] == "argumentType":
@@ -103,22 +115,40 @@ async def input_request(
                 context,
                 properties["functionName"],
                 properties["argumentIndex"],
+                filePath,
             ),
             result_type=prompts.ArgumentTypeAgentResponse,
+            deps=_context,
         )
         return {"source": "AI", "value": response.data.response, "isStdlib": None}
 
 
 async def _run(path: str):
-    global _client, _agent
+    global _client, _agent, _clangd, _context
+
+    clangd_proc = await asyncio.create_subprocess_exec(
+        "clangd",
+        "--log=verbose",
+        stdin=asyncio.subprocess.PIPE,
+        stdout=asyncio.subprocess.PIPE,
+    )
+
+    _clangd = jsonrpc.JsonRpcClient(clangd_proc.stdout, clangd_proc.stdin)
+    _context.lsp = _clangd
+
+    await _clangd.start()
 
     (reader, writer) = await asyncio.open_unix_connection(path)
     _client = jsonrpc.JsonRpcClient(reader, writer)
 
+    tools = await lsp_client.initialize(_clangd)
+    tools.append(duckduckgo_search_tool())
+
     _agent = Agent(
         "anthropic:claude-3-7-sonnet-latest",
         system_prompt="You are an expert computer programmer specializing in static analysis.",
-        tools=[duckduckgo_search_tool()],
+        tools=tools,
+        deps_type=jsonrpc.JsonRpcClient,
         result_retries=5,
         retries=5,
         instrument=True,
