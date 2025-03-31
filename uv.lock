@@ -1189,6 +1189,7 @@ dependencies = [
     { name = "logfire" },
     { name = "pydantic-ai", extra = ["logfire"] },
     { name = "pydantic-ai-slim", extra = ["duckduckgo"] },
+    { name = "pydantic-graph" },
     { name = "ruff" },
 ]
 
@@ -1197,6 +1198,7 @@ requires-dist = [
     { name = "logfire", specifier = ">=3.11.0" },
     { name = "pydantic-ai", extras = ["logfire"], specifier = ">=0.0.45" },
     { name = "pydantic-ai-slim", extras = ["duckduckgo"], specifier = ">=0.0.45" },
+    { name = "pydantic-graph", specifier = ">=0.0.45" },
     { name = "ruff", specifier = ">=0.9.9" },
 ]
 

@@ -86,8 +86,8 @@ async def gotoDeclaration(
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve the declaration location of a symbol at a given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
-    await openDocument(ctx.deps.lsp, textDocument["uri"])
     try:
+        await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/declaration",
             {
@@ -105,8 +105,8 @@ async def gotoDefinition(
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve the definition location of a symbol at a given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
-    await openDocument(ctx.deps.lsp, textDocument["uri"])
     try:
+        await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/definition",
             {
@@ -124,8 +124,8 @@ async def gotoTypeDefinition(
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve the type definition location of a symbol at a given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
-    await openDocument(ctx.deps.lsp, textDocument["uri"])
     try:
+        await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/typeDefinition",
             {
@@ -143,8 +143,8 @@ async def gotoImplementation(
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve the implementation location of a symbol at a given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
-    await openDocument(ctx.deps.lsp, textDocument["uri"])
     try:
+        await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/implementation",
             {
@@ -162,8 +162,8 @@ async def findReferences(
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve project-wide references for the symbol denoted by the given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
-    await openDocument(ctx.deps.lsp, textDocument["uri"])
     try:
+        await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/implementation",
             {

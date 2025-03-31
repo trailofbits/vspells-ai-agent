@@ -1,28 +1,60 @@
 from typing import Literal, TypedDict
+from pydantic import BaseModel
 
 
 class FunctionModel(TypedDict):
-    category: Literal["sink", "source", "parser", "nonparser"]
+    category: Literal["sink", "source", "parser", "nonparser", "maybeparser"]
     return_type: Literal["data", "nodata", "maybedata"]
     arguments: list[Literal["data", "nodata", "maybedata"]]
     is_stdlib: bool
 
 
-class Response(FunctionModel):
+class AnalysisResponse(FunctionModel):
     reasoning: str
 
 
-boilerplate = """Your goal is to analyze and categorize a function based on the following definitions and categories:
+def analyze_function(
+    file_contents: str,
+    context: str,
+    function_name: str,
+    no_args: int,
+    file_path: str | None,
+):
+    return f"""Your task is to categorize a given function based on its role in parsing, handling, or processing data. You will receive file contents, context, a function name, and possible output categories. Analyze the information provided and categorize the function according to the given criteria.
+
+First, review the following file contents:
+
+<file_contents>
+
+{file_contents}
+
+</file_contents>
+
+{f"The path to this file is `{file_path}`" if file_path else ""}
+
+Now, consider this additional context that may be relevant to your analysis:
+
+<context>
+
+{context}
+
+</context>
+
+Your goal is to analyze and categorize a function based on the following definitions and categories:
 
 1. Parser: Any function that takes arbitrary user input and produces structured output.
 2. Source: Any function that produces arbitrary user input.
 3. Sink: Any function that accepts potentially arbitrary user data and doesn't propagate it further.
-4. Nonparser: Any other kind of function that doesn't fit into the above categories.
+4. Maybeparser: Any function that accepts potentially arbitrary user data, does not necessarily perform parsing itself, but may still propagate it further.
+5. Nonparser: Any other kind of function that doesn't fit into the above categories.
 
 Additionally, consider these value types:
 - "data": Values subject to parsing.
 - "nodata": Values not subject to parsing.
 - "maybedata": Values that could contain either "data" or "nodata".
+
+A nonparser can only accept nodata arguments and must return nodata.
+A sink can only return nodata.
 
 IMPORTANT: Focus on analyzing the function's behavior rather than its name. The name itself should not be the primary factor in your categorization.
 
@@ -34,7 +66,7 @@ Please conduct your analysis using the following steps:
 2. Summarize the function's overall purpose based on the given context and file contents.
 3. Examine the function's behavior based on the given context and file contents.
 4. Consider how the function interacts with other parts of the system.
-5. Consider how well the function fits into each category (Parser, Source, Sink, Nonparser).
+5. Consider how well the function fits into each category (Parser, Source, Sink, Maybeparser, Nonparser).
 6. Evaluate how the function might handle input.
 7. Assess how the function might handle output.
 8. Determine which value type (data, nodata, maybedata) the function is likely to work with.
@@ -223,47 +255,6 @@ Here are some examples of functions and their categories, return and argument ty
           - nodata  # FILE * stream
           category: nonparser
 
-    - function: main
-      model:
-          return_type: nodata
-          arguments:
-          - nodata  # int argc
-          - data  # char * argv[]
-          - data  # char * envp[]
-          category: nonparser
-
-"""
-
-
-def analyze_function(
-    file_contents: str,
-    context: str,
-    function_name: str,
-    no_args: int,
-    file_path: str | None,
-):
-    return f"""Your task is to categorize a given function based on its role in parsing, handling, or processing data. You will receive file contents, context, a function name, and possible output categories. Analyze the information provided and categorize the function according to the given criteria.
-
-First, review the following file contents:
-
-<file_contents>
-
-{file_contents}
-
-</file_contents>
-
-{f"The path to this file is `{file_path}`" if file_path else ""}
-
-Now, consider this additional context that may be relevant to your analysis:
-
-<context>
-
-{context}
-
-</context>
-
-{boilerplate}
-
 Consider the function `{function_name}`, which takes {no_args} argument(s) as input.
 
 Please answer the following questions about `{function_name}`:
@@ -274,4 +265,100 @@ Please answer the following questions about `{function_name}`:
 - What data types are the {no_args} argument(s) passed to `{function_name}`?
 - Is `{function_name}` part of the standard libraries of this system?
 
+"""
+
+class FeedbackResponse(BaseModel):
+    feedback: str
+    accept_analysis: bool
+
+def provide_feedback(
+    file_contents: str,
+    context: str,
+    function_name: str,
+    no_args: int,
+    file_path: str | None,
+    response: AnalysisResponse,
+):
+    reasoning = response["reasoning"]
+    del response["reasoning"]
+    import json
+    return f"""Your task is to provide feedback on a machine's analysis of a specific function in a C source file.
+
+Here is the content of the source file to be analyzed:
+
+<file_contents>
+{file_contents}
+</file_contents>
+
+The path to this file is:
+<file_path>
+{file_path}
+</file_path>
+
+Consider this additional context that may be relevant to your analysis:
+
+<context>
+{context}
+</context>
+
+The function being analyzed is:
+<function_name>
+{function_name}
+</function_name>
+
+The machine has categorized this function as follows:
+
+<analysis>
+{
+    json.dumps(response, indent=2)
+}
+</analysis>
+
+The machine has provided the following reasoning for its categorization:
+
+<reasoning>
+{reasoning}
+</reasoning>
+
+Your task is to evaluate the machine's analysis and provide feedback. Consider the following categories and definitions:
+
+1. Parser: Any function that takes arbitrary user input and produces structured output.
+2. Source: Any function that produces arbitrary user input.
+3. Sink: Any function that accepts potentially arbitrary user data and doesn't propagate it further.
+4. Maybeparser: Any function that accepts potentially arbitrary user data, does not necessarily perform parsing itself, but may still propagate it further.
+5. Nonparser: Any other kind of function that doesn't fit into the above categories.
+
+Additionally, consider these value types:
+- "data": Values subject to parsing.
+- "nodata": Values not subject to parsing.
+- "maybedata": Values that could contain either "data" or "nodata".
+
+A nonparser can only accept nodata arguments and must return nodata.
+A sink can only return nodata.
+
+Important Guidelines:
+1. Focus on analyzing the function's behavior rather than its name.
+2. Consider how the types and categories of the function, its arguments, and return values will be used in a dataflow analysis/taint tracking algorithm.
+3. Try to think of potential uses of the function that would contradict the provided analysis.
+4. If you believe the analysis is valid as is, state so explicitly.
+
+In your analysis, please:
+1. Evaluate the accuracy of the machine's categorization.
+2. Assess the correctness of the machine's reasoning.
+3. Consider any edge cases or potential misuses of the function that could affect its categorization.
+4. Discuss the implications of this function's behavior for dataflow analysis and taint tracking.
+
+Provide your feedback in well-structured, clear, professional language.
+
+1. Summarize the function's behavior based on the provided code and context.
+2. List out the key characteristics that support or contradict each category (Parser, Source, Sink, Maybeparser, Nonparser).
+3. Analyze the function's arguments and return values in terms of the given value types (data, nodata, maybedata).
+4. Consider potential edge cases or misuses that could affect the categorization.
+5. Present examples that would contradict the decisions made by the machine, if applicable.
+
+Your response should be a JSON object containing both:
+- A "feedback" field with your feedback
+- A "accept_analysis" field with a boolean telling whether you recognize the analysis as correct or not
+
+Keep your feedback to around 3 paragraphs.
 """
