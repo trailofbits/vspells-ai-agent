@@ -53,12 +53,11 @@ Additionally, consider these value types:
 - "nodata": Values not subject to parsing.
 - "maybedata": Values that could contain either "data" or "nodata".
 
-A nonparser can only accept nodata arguments and must return nodata.
-A sink can only return nodata.
-
-IMPORTANT: Focus on analyzing the function's behavior rather than its name. The name itself should not be the primary factor in your categorization.
-
-Keep in mind the types and categories of the functions, its arguments and return values will be used in a dataflow analysis/taint tracking algorithm.
+Important rules:
+- A nonparser can only accept nodata arguments and must return nodata.
+- A sink can only return nodata.
+- Focus on the function's behavior rather than its name when categorizing.
+- When considering taint tracking, only mark data as tainted if it will be subject to further parsing, not in a general sense.
 
 Please conduct your analysis using the following steps:
 
@@ -333,14 +332,13 @@ Additionally, consider these value types:
 - "nodata": Values not subject to parsing.
 - "maybedata": Values that could contain either "data" or "nodata".
 
-A nonparser can only accept nodata arguments and must return nodata.
-A sink can only return nodata.
-
-Important Guidelines:
-1. Focus on analyzing the function's behavior rather than its name.
-2. Consider how the types and categories of the function, its arguments, and return values will be used in a dataflow analysis/taint tracking algorithm.
-3. Try to think of potential uses of the function that would contradict the provided analysis.
-4. If you believe the analysis is valid as is, state so explicitly.
+Important rules:
+- A nonparser can only accept nodata arguments and must return nodata.
+- A sink can only return nodata.
+- Focus on the function's behavior rather than its name when categorizing.
+- When considering taint tracking, only mark data as tainted if it will be subject to further parsing, not in a general sense.
+- Try to think of potential uses of the function that would contradict the provided analysis.
+- If you believe the analysis is valid as is, state so explicitly.
 
 In your analysis, please:
 1. Evaluate the accuracy of the machine's categorization.
