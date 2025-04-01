@@ -1,6 +1,7 @@
 from . import jsonrpc
 from . import prompts
 from . import lsp_client
+from . import man
 
 import asyncio
 from itertools import count
@@ -152,7 +153,7 @@ async def _run(path: str):
     _client = jsonrpc.JsonRpcClient(reader, writer)
 
     tools = await lsp_client.initialize(_clangd)
-    tools.append(duckduckgo_search_tool())
+    tools.extend((duckduckgo_search_tool(), man.man))
 
     analysis_agent = Agent(
         "anthropic:claude-3-7-sonnet-latest",
