@@ -1,4 +1,4 @@
-from .jsonrpc import JsonRpcClient
+from .jsonrpc import JsonRpcConnection
 
 from itertools import count
 from pydantic_ai import RunContext, Tool, ModelRetry
@@ -59,10 +59,10 @@ class TextDocumentIdentifier(TypedDict):
 
 
 class LSPContext(Protocol):
-    lsp: JsonRpcClient
+    lsp: JsonRpcConnection
 
 
-async def openDocument(client: JsonRpcClient, uri: str):
+async def openDocument(client: JsonRpcConnection, uri: str):
     if not uri.startswith("file://"):
         raise ModelRetry("URIs must start with a protocol name (e.g. file://)")
     with open(uri[len("file://") :]) as file:
@@ -165,7 +165,7 @@ async def findReferences(
     try:
         await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
-            "textDocument/implementation",
+            "textDocument/references",
             {
                 "textDocument": textDocument,
                 "position": position,
@@ -188,7 +188,7 @@ async def readFile(ctx: RunContext[LSPContext], uri: str, range: Range):
         raise ModelRetry(str(ex)) from ex
 
 
-async def initialize(lsp: LSPContext) -> list[Tool[LSPContext]]:
+async def initialize(lsp: JsonRpcConnection) -> list[Tool[LSPContext]]:
     result: InitializeResult = await lsp.send_request(
         "initialize", {"clientCapabilities": {}}
     )
