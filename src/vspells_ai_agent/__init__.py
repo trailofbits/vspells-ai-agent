@@ -16,9 +16,6 @@ from pydantic_graph import BaseNode, GraphRunContext, End, Graph
 
 import logfire
 
-logfire.configure(scrubbing=False)
-logfire.instrument_anthropic()
-
 
 class Position(TypedDict):
     line: int
@@ -137,35 +134,49 @@ async def input_request(
         result = await graph.run(AnalyzeFunction(), state=ctx)
         return result.output
 
-async def get_function_model(ctx: RunContext[Context], function_name: str) -> prompts.FunctionModel:
+
+async def get_function_model(
+    ctx: RunContext[Context], function_name: str
+) -> prompts.FunctionModel:
     """Returns the model of a function that has been analyzed beforehand"""
 
     try:
-        return await ctx.deps.client.send_request("get_function_model", {
-            "functionName": function_name
-        })
+        return await ctx.deps.client.send_request(
+            "get_function_model", {"functionName": function_name}
+        )
     except Exception as ex:
         raise ModelRetry(str(ex)) from ex
 
 
-async def _run(path: str):
+async def _run(path: str, clang_path: str | None, disable_ddg: bool, disable_man: bool):
     global _client, analysis_agent, feedback_agent, _clangd
 
-    clangd_proc = await asyncio.create_subprocess_exec(
-        "clangd",
-        stdin=asyncio.subprocess.PIPE,
-        stdout=asyncio.subprocess.PIPE,
-    )
+    if clang_path is not None:
+        clangd_proc = await asyncio.create_subprocess_exec(
+            "clangd",
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+        )
 
-    _clangd = jsonrpc.JsonRpcConnection(jsonrpc.JsonRpcStreamTransport(clangd_proc.stdout, clangd_proc.stdin))
+        _clangd = jsonrpc.JsonRpcConnection(
+            jsonrpc.JsonRpcStreamTransport(clangd_proc.stdout, clangd_proc.stdin)
+        )
 
-    clangd_task = asyncio.create_task(_clangd.run())
+        clangd_task = asyncio.create_task(_clangd.run())
+        tools = await lsp_client.initialize(_clangd)
+    else:
+        tools = []
 
     (reader, writer) = await asyncio.open_unix_connection(path)
     _client = jsonrpc.JsonRpcConnection(jsonrpc.JsonRpcStreamTransport(reader, writer))
 
-    tools = await lsp_client.initialize(_clangd)
-    tools.extend((duckduckgo_search_tool(), man.man, Tool(get_function_model)))
+    if not disable_ddg:
+        tools.append(duckduckgo_search_tool())
+
+    if not disable_man:
+        tools.append(man.man)
+
+    tools.append(Tool(get_function_model))
 
     analysis_agent = Agent(
         "anthropic:claude-3-7-sonnet-latest",
@@ -225,10 +236,46 @@ def main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("path")
+    parser.add_argument(
+        "socket_path",
+        help="Path to the Unix socket to be used for communicating with vast-detect-parsers",
+    )
+    parser.add_argument(
+        "--disable-ddg", action="store_true", help="Disables the DuckDuckGo integration"
+    )
+    parser.add_argument(
+        "--disable-man",
+        action="store_true",
+        help="Disables the man pages integration. The man pages integration requires man and mandoc to be available in PATH.",
+    )
+    parser.add_argument(
+        "--enable-logfire",
+        action="store_true",
+        help="Enables logging LLM calls to Logfire",
+    )
+    lsp_group = parser.add_mutually_exclusive_group()
+    lsp_group.add_argument(
+        "--clangd-path",
+        default="clangd",
+        help="Path to the clangd executable to be used for the LSP integration. Defaults to `clangd`.",
+    )
+    lsp_group.add_argument(
+        "--disable-clangd",
+        dest="clangd_path",
+        action="store_const",
+        const=None,
+        help="Disables the LSP integration",
+    )
+
     args = parser.parse_args()
+
+    if args.enable_logfire:
+        logfire.configure(scrubbing=False)
+        logfire.instrument_anthropic()
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
-    loop.run_until_complete(_run(args.path))
+    loop.run_until_complete(
+        _run(args.socket_path, args.clangd_path, args.disable_ddg, args.disable_man)
+    )
