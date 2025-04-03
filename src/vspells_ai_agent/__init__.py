@@ -134,6 +134,31 @@ async def input_request(
         result = await graph.run(AnalyzeFunction(), state=ctx)
         return result.output
 
+def validate_result(
+    ctx: RunContext[Context], result: prompts.AnalysisResponse
+) -> prompts.AnalysisResponse:
+    actual_args_no = len(result["arguments"])
+    expected_args_no = ctx.deps.expected_arg_no
+    if actual_args_no > expected_args_no:
+        raise ModelRetry(
+            f"Too many argument types: expected {expected_args_no} but got {actual_args_no}"
+        )
+    elif actual_args_no < expected_args_no:
+        raise ModelRetry(
+            f"Not enough argument types: expected {expected_args_no} but got {actual_args_no}"
+        )
+
+    if result["category"] == "nonparser":
+        for i, arg in zip(count(), result["arguments"]):
+            if arg != "nodata":
+                raise ModelRetry(
+                    f"The function was categorized as being nonparser but argument #{i} is categorised as being {arg}, whereas all nonparser arguments must be nodata"
+                )
+    elif result["category"] == "sink" and result["return_type"] != "nodata":
+        raise ModelRetry(
+            f"The function was categorized as being a sink but returns {result['return_type']}, whereas the return type of a sink musk always be nodata"
+        )
+    return result
 
 async def get_function_model(
     ctx: RunContext[Context], function_name: str
@@ -200,32 +225,7 @@ async def _run(path: str, clang_path: str | None, disable_ddg: bool, disable_man
         instrument=True,
     )
 
-    @analysis_agent.result_validator
-    def validate_result(
-        ctx: RunContext[Context], result: prompts.AnalysisResponse
-    ) -> prompts.AnalysisResponse:
-        actual_args_no = len(result["arguments"])
-        expected_args_no = ctx.deps.expected_arg_no
-        if actual_args_no > expected_args_no:
-            raise ModelRetry(
-                f"Too many argument types: expected {expected_args_no} but got {actual_args_no}"
-            )
-        elif actual_args_no < expected_args_no:
-            raise ModelRetry(
-                f"Not enough argument types: expected {expected_args_no} but got {actual_args_no}"
-            )
-
-        if result["category"] == "nonparser":
-            for i, arg in zip(count(), result["arguments"]):
-                if arg != "nodata":
-                    raise ModelRetry(
-                        f"The function was categorized as being nonparser but argument #{i} is categorised as being {arg}, whereas all nonparser arguments must be nodata"
-                    )
-        elif result["category"] == "sink" and result["return_type"] != "nodata":
-            raise ModelRetry(
-                f"The function was categorized as being a sink but returns {result['return_type']}, whereas the return type of a sink musk always be nodata"
-            )
-        return result
+    analysis_agent.result_validator(validate_result)
 
     _client.rpc_method("input")(input_request)
 
