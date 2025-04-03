@@ -8,7 +8,7 @@ from itertools import count
 from typing import TypedDict
 from dataclasses import dataclass, field
 
-from pydantic_ai import Agent, RunContext, ModelRetry
+from pydantic_ai import Agent, RunContext, ModelRetry, Tool
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
 from pydantic_ai.messages import ModelMessage
 
@@ -122,6 +122,7 @@ async def input_request(
             )
 
     ctx = Context(
+        client=_client,
         lsp=_clangd,
         function_name=functionName,
         expected_arg_no=numberOfArguments,
@@ -135,6 +136,16 @@ async def input_request(
     with logfire.span("Analyze {function=}", function=functionName):
         result = await graph.run(AnalyzeFunction(), state=ctx)
         return result.output
+
+async def get_function_model(ctx: RunContext[Context], function_name: str) -> prompts.FunctionModel:
+    """Returns the model of a function that has been analyzed beforehand"""
+
+    try:
+        return await ctx.deps.client.send_request("get_function_model", {
+            "functionName": function_name
+        })
+    except Exception as ex:
+        raise ModelRetry(str(ex)) from ex
 
 
 async def _run(path: str):
@@ -154,7 +165,7 @@ async def _run(path: str):
     _client = jsonrpc.JsonRpcConnection(jsonrpc.JsonRpcStreamTransport(reader, writer))
 
     tools = await lsp_client.initialize(_clangd)
-    tools.extend((duckduckgo_search_tool(), man.man))
+    tools.extend((duckduckgo_search_tool(), man.man, Tool(get_function_model)))
 
     analysis_agent = Agent(
         "anthropic:claude-3-7-sonnet-latest",
