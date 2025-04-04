@@ -4,7 +4,6 @@ from . import lsp_client
 from . import man
 
 import asyncio
-from itertools import count
 from typing import TypedDict
 from dataclasses import dataclass, field
 import logging
@@ -111,7 +110,7 @@ async def input_request(
     if filePath is not None:
         with open(filePath) as file:
             file_lines = file.readlines()
-            file_lines_nos = map(lambda x: f"{x[0]}: {x[1]}", zip(count(), file_lines))
+            file_lines_nos = map(lambda x: f"{x[0]}: {x[1]}", enumerate(file_lines))
             file_contents = "    ".join(file_lines_nos)
 
         if range is not None:
@@ -151,7 +150,7 @@ def validate_result(
         )
 
     if result["category"] == "nonparser":
-        for i, arg in zip(count(), result["arguments"]):
+        for i, arg in enumerate(result["arguments"]):
             if arg != "nodata":
                 raise ModelRetry(
                     f"The function was categorized as being nonparser but argument #{i} is categorised as being {arg}, whereas all nonparser arguments must be nodata"

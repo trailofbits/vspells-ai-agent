@@ -1,6 +1,5 @@
 from .jsonrpc import JsonRpcConnection
 
-from itertools import count
 from pydantic_ai import RunContext, Tool, ModelRetry
 from typing import TypedDict, NotRequired, Protocol
 import logging
@@ -173,7 +172,7 @@ async def readFile(ctx: RunContext[LSPContext], uri: str, range: Range):
     try:
         with open(uri[len("file://") :]) as file:
             lines = file.readlines()
-            lines_nos = list(map(lambda x: f"{x[0]}: {x[1]}", zip(count(), lines)))
+            lines_nos = list(map(lambda x: f"{x[0]}: {x[1]}", enumerate(lines)))
             return "    ".join(lines_nos[range["start"]["line"] : range["end"]["line"]])
     except Exception as ex:
         raise ModelRetry(str(ex)) from ex
