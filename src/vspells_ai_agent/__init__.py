@@ -31,40 +31,38 @@ class Range(TypedDict):
 class Context:
     client: jsonrpc.JsonRpcConnection
     lsp: jsonrpc.JsonRpcConnection
+    analysis_agent: Agent["Context", prompts.AnalysisResponse]
+    feedback_agent: Agent["Context", prompts.FeedbackResponse]
     function_name: str
     expected_arg_no: int
     file_contents: str
     file_path: str
     usage_context: str
-    message_history: list[ModelMessage] = field(default_factory=list)
-
-
-_client: jsonrpc.JsonRpcConnection
-_clangd: jsonrpc.JsonRpcConnection
-analysis_agent: Agent[Context, prompts.AnalysisResponse]
-feedback_agent: Agent[Context, prompts.FeedbackResponse]
 
 
 @dataclass
-class AnalyzeFunction(BaseNode[Context]):
+class State:
+    message_history: list[ModelMessage] = field(default_factory=list)
+
+
+@dataclass
+class AnalyzeFunction(BaseNode[State, Context]):
     analysis_feedback: str | None = None
 
-    async def run(self, ctx: GraphRunContext[Context]) -> "AnalysisFeedback":
-        global analysis_agent
-
+    async def run(self, ctx: GraphRunContext[State, Context]) -> "AnalysisFeedback":
         if self.analysis_feedback:
             prompt = f"Reconsider your analysis by incorporating the following feedback:\n{self.analysis_feedback}"
         else:
             prompt = prompts.analyze_function(
-                ctx.state.file_contents,
-                ctx.state.usage_context,
-                ctx.state.function_name,
-                ctx.state.expected_arg_no,
-                ctx.state.file_path,
+                ctx.deps.file_contents,
+                ctx.deps.usage_context,
+                ctx.deps.function_name,
+                ctx.deps.expected_arg_no,
+                ctx.deps.file_path,
             )
-        result = await analysis_agent.run(
+        result = await ctx.deps.analysis_agent.run(
             prompt,
-            deps=ctx.state,
+            deps=ctx.deps,
             message_history=ctx.state.message_history,
         )
         ctx.state.message_history.extend(result.all_messages())
@@ -72,67 +70,81 @@ class AnalyzeFunction(BaseNode[Context]):
 
 
 @dataclass
-class AnalysisFeedback(BaseNode[Context, None, prompts.FunctionModel]):
+class AnalysisFeedback(BaseNode[State, Context, prompts.FunctionModel]):
     analysis: prompts.AnalysisResponse
 
     async def run(
         self, ctx: GraphRunContext[Context]
     ) -> AnalyzeFunction | End[prompts.FunctionModel]:
-        global feedback_agent
-
         prompt = prompts.provide_feedback(
-            ctx.state.file_contents,
-            ctx.state.usage_context,
-            ctx.state.function_name,
-            ctx.state.expected_arg_no,
-            ctx.state.file_path,
+            ctx.deps.file_contents,
+            ctx.deps.usage_context,
+            ctx.deps.function_name,
+            ctx.deps.expected_arg_no,
+            ctx.deps.file_path,
             self.analysis,
         )
-        result = await feedback_agent.run(prompt, deps=ctx.state)
+        result = await self.deps.feedback_agent.run(prompt, deps=ctx.deps)
         if result.data.accept_analysis:
             return End(self.analysis)
         else:
             return AnalyzeFunction(result.data.feedback)
 
 
-async def input_request(
-    *,
-    functionName: str,
-    numberOfArguments: int,
-    filePath: str | None = None,
-    range: Range | None = None,
-) -> prompts.FunctionModel:
-    global analysis_agent, feedback_agent, _context, _clangd
+class AnalysisService:
+    def __init__(
+        self,
+        client: jsonrpc.JsonRpcConnection,
+        lsp: jsonrpc.JsonRpcConnection,
+        analysis_agent: Agent[Context, prompts.AnalysisResponse],
+        feedback_agent: Agent[Context, prompts.FeedbackResponse],
+    ):
+        self._client = client
+        self._lsp = lsp
+        self._analysis_agent = analysis_agent
+        self._feedback_agent = feedback_agent
 
-    file_contents = ""
-    usage_context = ""
+        self._client.rpc_method("input", self._input_request)
 
-    if filePath is not None:
-        with open(filePath) as file:
-            file_lines = file.readlines()
-            file_lines_nos = map(lambda x: f"{x[0]}: {x[1]}", enumerate(file_lines))
-            file_contents = "    ".join(file_lines_nos)
+    async def _input_request(
+        self,
+        *,
+        functionName: str,
+        numberOfArguments: int,
+        filePath: str | None = None,
+        range: Range | None = None,
+    ) -> prompts.FunctionModel:
+        file_contents = ""
+        usage_context = ""
 
-        if range is not None:
-            usage_context = "".join(
-                file_lines[range["start"]["line"] - 1 : range["end"]["line"]]
-            )
+        if filePath is not None:
+            with open(filePath) as file:
+                file_lines = file.readlines()
+                file_lines_nos = map(lambda x: f"{x[0]}: {x[1]}", enumerate(file_lines))
+                file_contents = "    ".join(file_lines_nos)
 
-    ctx = Context(
-        client=_client,
-        lsp=_clangd,
-        function_name=functionName,
-        expected_arg_no=numberOfArguments,
-        file_contents=file_contents,
-        file_path=filePath,
-        usage_context=usage_context,
-    )
+            if range is not None:
+                usage_context = "".join(
+                    file_lines[range["start"]["line"] - 1 : range["end"]["line"]]
+                )
 
-    graph = Graph(nodes=(AnalyzeFunction, AnalysisFeedback))
+        ctx = Context(
+            client=self._client,
+            lsp=self._lsp,
+            analysis_agent=self._analysis_agent,
+            feedback_agent=self._feedback_agent,
+            function_name=functionName,
+            expected_arg_no=numberOfArguments,
+            file_contents=file_contents,
+            file_path=filePath,
+            usage_context=usage_context,
+        )
 
-    with logfire.span("Analyze {function=}", function=functionName):
-        result = await graph.run(AnalyzeFunction(), state=ctx)
-        return result.output
+        graph = Graph(nodes=(AnalyzeFunction, AnalysisFeedback))
+
+        with logfire.span("Analyze {function=}", function=functionName):
+            result = await graph.run(AnalyzeFunction(), state=State(), deps=ctx)
+            return result.output
 
 
 def validate_result(
@@ -176,8 +188,6 @@ async def get_function_model(
 
 
 async def _run(path: str, clang_path: str | None, disable_ddg: bool, disable_man: bool):
-    global _client, analysis_agent, feedback_agent, _clangd
-
     if clang_path is not None:
         clangd_proc = await asyncio.create_subprocess_exec(
             clang_path,
@@ -185,17 +195,17 @@ async def _run(path: str, clang_path: str | None, disable_ddg: bool, disable_man
             stdout=asyncio.subprocess.PIPE,
         )
 
-        _clangd = jsonrpc.JsonRpcConnection(
+        clangd = jsonrpc.JsonRpcConnection(
             jsonrpc.JsonRpcStreamTransport(clangd_proc.stdout, clangd_proc.stdin)
         )
 
-        clangd_task = asyncio.create_task(_clangd.run())
-        tools = await lsp_client.initialize(_clangd)
+        clangd_task = asyncio.create_task(clangd.run())
+        tools = await lsp_client.initialize(clangd)
     else:
         tools = []
 
     (reader, writer) = await asyncio.open_unix_connection(path)
-    _client = jsonrpc.JsonRpcConnection(jsonrpc.JsonRpcStreamTransport(reader, writer))
+    client = jsonrpc.JsonRpcConnection(jsonrpc.JsonRpcStreamTransport(reader, writer))
 
     if not disable_ddg:
         tools.append(duckduckgo_search_tool())
@@ -229,9 +239,9 @@ async def _run(path: str, clang_path: str | None, disable_ddg: bool, disable_man
 
     analysis_agent.result_validator(validate_result)
 
-    _client.rpc_method("input", input_request)
+    service = AnalysisService(client, clangd, analysis_agent, feedback_agent)
 
-    await _client.run()
+    await client.run()
 
 
 def main() -> None:
@@ -276,9 +286,7 @@ def main() -> None:
         logfire.instrument_anthropic()
         logging.basicConfig(handlers=[logfire.LogfireLoggingHandler()])
 
-    logging.info("Starting loop", extra={
-        "cliArgs": vars(args)
-    })
+    logging.info("Starting loop", extra={"cliArgs": vars(args)})
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 

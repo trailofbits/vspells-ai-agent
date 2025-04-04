@@ -48,7 +48,12 @@ def _check_handler_sig(func: Callable):
     sig = inspect.signature(func)
     has_positional = False
     has_keyword = False
-    for param in sig.parameters.values():
+
+    params = list(sig.parameters.values())
+    if inspect.ismethod(func):
+        params = params[1:]
+
+    for param in params:
         match param.kind:
             case inspect.Parameter.POSITIONAL_ONLY | inspect.Parameter.VAR_POSITIONAL:
                 has_positional = True
