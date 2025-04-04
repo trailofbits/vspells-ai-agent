@@ -230,7 +230,7 @@ async def _run(path: str, clang_path: str | None, disable_ddg: bool, disable_man
 
     analysis_agent.result_validator(validate_result)
 
-    _client.rpc_method("input")(input_request)
+    _client.rpc_method("input", input_request)
 
     await _client.run()
 

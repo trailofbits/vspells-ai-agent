@@ -73,21 +73,25 @@ class JsonRpcConnection:
         self._noti_handlers: dict[str, Callable] = {}
         self._queue = asyncio.Queue()
 
-    def rpc_method(self, method_name: str):
+    def rpc_method(self, method_name: str, func: Callable | None = None):
         def decorator(func):
             _check_handler_sig(func)
             self._method_handlers[method_name] = validate_call(func)
             return func
+        if func is None:
+            return decorator
+        else:
+            decorator(func)
 
-        return decorator
-
-    def rpc_notification(self, method_name: str):
+    def rpc_notification(self, method_name: str, func: Callable | None = None):
         def decorator(func):
             _check_handler_sig(func)
             self._noti_handlers[method_name] = validate_call(func)
             return func
-
-        return decorator
+        if func is None:
+            return decorator
+        else:
+            decorator(func)
 
     async def _send_obj(
         self,
