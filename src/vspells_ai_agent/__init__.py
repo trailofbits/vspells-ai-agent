@@ -170,7 +170,7 @@ async def get_function_model(
 
     try:
         return await ctx.deps.client.send_request(
-            "get_function_model", {"functionName": function_name}
+            "get_function_model", functionName=function_name
         )
     except Exception as ex:
         raise ModelRetry(str(ex)) from ex
@@ -275,7 +275,7 @@ def main() -> None:
     if args.enable_logfire:
         logfire.configure(scrubbing=False)
         logfire.instrument_anthropic()
-        logging.basicConfig(handlers=[logfire.LogfireLoggingHandler()])
+        logging.basicConfig(handlers=[logfire.LogfireLoggingHandler()], level=logging.DEBUG)
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

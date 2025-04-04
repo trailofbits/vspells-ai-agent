@@ -77,7 +77,19 @@ class JsonRpcConnection:
     async def _send_err(self, id: int | str | None, err: JsonRpcError):
         await self._send_obj(JsonRpcErrorResponse(jsonrpc="2.0", id=id, error=err))
 
-    async def send_request(self, method: str, params: list | dict | None):
+    def _get_params(self, args: list, kwargs: dict) -> list | dict | None:
+        if len(args) != 0 and len(kwargs) != 0:
+            raise ValueError("Can't send both list and keyword parameters in a JSONRPC request")
+        if len(args) != 0:
+            return args
+        elif len(kwargs) != 0:
+            return kwargs
+        else:
+            return None
+
+    async def send_request(self, method: str, *args, **kwargs):
+        params = self._get_params(args, kwargs)
+
         id = self._next_id
         self._next_id = self._next_id + 1
 
@@ -93,7 +105,9 @@ class JsonRpcConnection:
         await self._send_obj(req)
         return await future
 
-    async def send_notification(self, method: str, params: list | dict | None):
+    async def send_notification(self, method: str, *args, **kwargs):
+        params = self._get_params(args, kwargs)
+
         if params is not None:
             req = JsonRpcNotification(jsonrpc="2.0", method=method, params=params)
         else:
