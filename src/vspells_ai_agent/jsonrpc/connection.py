@@ -101,29 +101,30 @@ class JsonRpcConnection:
 
         await self._send_obj(req)
 
-    def _handle_notification(self, noti: JsonRpcNotification):
-        method = noti["method"]
-
-        if method not in self._noti_handlers:
-            return
-
-        handler = self._noti_handlers[method]
-
-        if "params" not in noti:
-            coro = handler()
+    def _dispatch_handler(self, func: Callable, params: dict | list | None):
+        if params is None:
+            return func()
         else:
-            params = noti["params"]
-
             # Convert list params to positional args, dict params to keyword args
             if isinstance(params, list):
-                coro = handler(*params)
+                return func(*params)
             elif isinstance(params, dict):
-                sig = inspect.signature(handler)
+                sig = inspect.signature(func)
                 # Filter the params dict to only include parameters the handler accepts
                 filtered_params = {
                     k: v for k, v in params.items() if k in sig.parameters
                 }
-                coro = handler(**filtered_params)
+                return func(**filtered_params)
+
+    def _handle_notification(self, noti: JsonRpcNotification):
+        method = noti["method"]
+
+        if method not in self._noti_handlers:
+            logger.info("Unhandled notification %s", method)
+            return
+
+        handler = self._noti_handlers[method]
+        coro = self._dispatch_handler(handler, noti.get("params"))
         self._noti_tasks.append(asyncio.create_task(coro))
 
     async def _send_response(self, id: str | int, coro):
@@ -151,22 +152,7 @@ class JsonRpcConnection:
             return
 
         handler = self._method_handlers[method]
-
-        if "params" not in req:
-            coro = handler()
-        else:
-            params = req["params"]
-
-            # Convert list params to positional args, dict params to keyword args
-            if isinstance(params, list):
-                coro = handler(*params)
-            elif isinstance(params, dict):
-                sig = inspect.signature(handler)
-                # Filter the params dict to only include parameters the handler accepts
-                filtered_params = {
-                    k: v for k, v in params.items() if k in sig.parameters
-                }
-                coro = handler(**filtered_params)
+        coro = self._dispatch_handler(handler, req.get("params"))
         self._noti_tasks.append(asyncio.create_task(self._send_response(id, coro)))
 
     async def _handle_result(self, res: JsonRpcResult):
