@@ -69,13 +69,11 @@ async def openDocument(client: JsonRpcConnection, uri: str):
         text = file.read()
     await client.send_notification(
         "textDocument/didOpen",
-        {
-            "textDocument": {
-                "uri": uri,
-                "languageId": "c",
-                "version": 0,
-                "text": text,
-            }
+        textDocument={
+            "uri": uri,
+            "languageId": "c",
+            "version": 0,
+            "text": text,
         },
     )
 
@@ -90,10 +88,8 @@ async def gotoDeclaration(
         await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/declaration",
-            {
-                "textDocument": textDocument,
-                "position": position,
-            },
+            textDocument=textDocument,
+            position=position,
         )
     except Exception as ex:
         raise ModelRetry(str(ex)) from ex
@@ -109,10 +105,8 @@ async def gotoDefinition(
         await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/definition",
-            {
-                "textDocument": textDocument,
-                "position": position,
-            },
+            textDocument=textDocument,
+            position=position,
         )
     except Exception as ex:
         raise ModelRetry(str(ex)) from ex
@@ -128,10 +122,8 @@ async def gotoTypeDefinition(
         await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/typeDefinition",
-            {
-                "textDocument": textDocument,
-                "position": position,
-            },
+            textDocument=textDocument,
+            position=position,
         )
     except Exception as ex:
         raise ModelRetry(str(ex)) from ex
@@ -147,10 +139,8 @@ async def gotoImplementation(
         await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/implementation",
-            {
-                "textDocument": textDocument,
-                "position": position,
-            },
+            textDocument=textDocument,
+            position=position,
         )
     except Exception as ex:
         raise ModelRetry(str(ex)) from ex
@@ -166,10 +156,8 @@ async def findReferences(
         await openDocument(ctx.deps.lsp, textDocument["uri"])
         return await ctx.deps.lsp.send_request(
             "textDocument/references",
-            {
-                "textDocument": textDocument,
-                "position": position,
-            },
+            textDocument=textDocument,
+            position=position,
         )
     except Exception as ex:
         raise ModelRetry(str(ex)) from ex
@@ -190,7 +178,7 @@ async def readFile(ctx: RunContext[LSPContext], uri: str, range: Range):
 
 async def initialize(lsp: JsonRpcConnection) -> list[Tool[LSPContext]]:
     result: InitializeResult = await lsp.send_request(
-        "initialize", {"clientCapabilities": {}}
+        "initialize", clientCapabilities={}
     )
 
     tools: list[Tool[LSPContext]] = [Tool(readFile, name="lsp_read_file")]
