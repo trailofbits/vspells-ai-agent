@@ -180,7 +180,7 @@ async def _run(path: str, clang_path: str | None, disable_ddg: bool, disable_man
 
     if clang_path is not None:
         clangd_proc = await asyncio.create_subprocess_exec(
-            "clangd",
+            clang_path,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
         )
