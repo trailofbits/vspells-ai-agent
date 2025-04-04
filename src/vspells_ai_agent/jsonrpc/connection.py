@@ -72,6 +72,7 @@ class JsonRpcConnection:
         self,
         obj: JsonRpcMessage,
     ):
+        logger.debug("Object sent", extra={"jsonRpcMsg": obj})
         await self._transport.send_message(json.dumps(obj))
 
     async def _send_err(self, id: int | str | None, err: JsonRpcError):
@@ -79,7 +80,9 @@ class JsonRpcConnection:
 
     def _get_params(self, args: list, kwargs: dict) -> list | dict | None:
         if len(args) != 0 and len(kwargs) != 0:
-            raise ValueError("Can't send both list and keyword parameters in a JSONRPC request")
+            raise ValueError(
+                "Can't send both list and keyword parameters in a JSONRPC request"
+            )
         if len(args) != 0:
             return args
         elif len(kwargs) != 0:
@@ -131,10 +134,16 @@ class JsonRpcConnection:
                 return func(**filtered_params)
 
     def _handle_notification(self, noti: JsonRpcNotification):
+        logger.debug("Handling notification", extra={"jsonRpcMsg": noti})
+
         method = noti["method"]
 
         if method not in self._noti_handlers:
-            logger.info("Unhandled notification %s", method)
+            logger.info(
+                "Unhandled notification %s",
+                method,
+                extra={"params": noti.get("params")},
+            )
             return
 
         handler = self._noti_handlers[method]
@@ -153,6 +162,8 @@ class JsonRpcConnection:
             )
 
     async def _handle_request(self, req: JsonRpcRequest):
+        logger.debug("Handling request", extra={"jsonRpcMsg": req})
+
         method = req["method"]
         id = req["id"]
 
@@ -170,15 +181,19 @@ class JsonRpcConnection:
         self._noti_tasks.append(asyncio.create_task(self._send_response(id, coro)))
 
     async def _handle_result(self, res: JsonRpcResult):
+        logger.debug("Handling result response", extra={"jsonRpcMsg": res})
+
         id = res["id"]
         result = res["result"]
 
         if id is None:
-            logger.warning("Received result %s with no id", result)
+            logger.warning("Received result with no id", extra={"result": result})
             return
 
         if id not in self._pending_requests:
-            logger.warning("Received result %s for invalid id %s", result, id)
+            logger.warning(
+                "Received result for invalid id %s", id, extra={"result": result}
+            )
             return
 
         req = self._pending_requests[id]
@@ -186,15 +201,19 @@ class JsonRpcConnection:
         del self._pending_requests[id]
 
     async def _handle_error(self, res: JsonRpcErrorResponse):
+        logger.debug("Handling error response", extra={"jsonRpcMsg": res})
+
         id = res["id"]
         error = res["error"]
 
         if id is None:
-            logger.warning("Received error %s with no id", error)
+            logger.warning("Received error with no id", extra={"error": error})
             return
 
         if id not in self._pending_requests:
-            logger.warning("Received error %s with invalid id %s", error, id)
+            logger.warning(
+                "Received error with invalid id %s", id, extra={"error": error}
+            )
             return
 
         req = self._pending_requests[id]
@@ -226,7 +245,9 @@ class JsonRpcConnection:
     async def _read_messages(self):
         while True:
             try:
-                await self._queue.put(await self._receive_one_msg())
+                msg = await self._receive_one_msg()
+                logger.debug("Received message", extra={"jsonRpcMsg": msg})
+                await self._queue.put(msg)
             except JsonRpcException as e:
                 await self._send_err(None, e.to_err())
 
