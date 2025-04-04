@@ -3,6 +3,9 @@ from .jsonrpc import JsonRpcConnection
 from itertools import count
 from pydantic_ai import RunContext, Tool, ModelRetry
 from typing import TypedDict, NotRequired, Protocol
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class ServerCapabilities(TypedDict):
@@ -180,6 +183,10 @@ async def initialize(lsp: JsonRpcConnection) -> list[Tool[LSPContext]]:
     result: InitializeResult = await lsp.send_request(
         "initialize", clientCapabilities={}
     )
+    logger.info("LSP connection initialized with %s", result["serverInfo"]["name"], extra={
+        "serverInfo": result["serverInfo"],
+        "serverCapabilities": result["capabilities"]
+    })
 
     tools: list[Tool[LSPContext]] = [Tool(readFile, name="lsp_read_file")]
     if (

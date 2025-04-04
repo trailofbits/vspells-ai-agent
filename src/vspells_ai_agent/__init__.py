@@ -275,8 +275,11 @@ def main() -> None:
     if args.enable_logfire:
         logfire.configure(scrubbing=False)
         logfire.instrument_anthropic()
-        logging.basicConfig(handlers=[logfire.LogfireLoggingHandler()], level=logging.DEBUG)
+        logging.basicConfig(handlers=[logfire.LogfireLoggingHandler()])
 
+    logging.info("Starting loop", extra={
+        "cliArgs": vars(args)
+    })
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
