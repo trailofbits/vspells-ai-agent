@@ -7,6 +7,7 @@ import asyncio
 from itertools import count
 from typing import TypedDict
 from dataclasses import dataclass, field
+import logging
 
 from pydantic_ai import Agent, RunContext, ModelRetry, Tool
 from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
@@ -134,6 +135,7 @@ async def input_request(
         result = await graph.run(AnalyzeFunction(), state=ctx)
         return result.output
 
+
 def validate_result(
     ctx: RunContext[Context], result: prompts.AnalysisResponse
 ) -> prompts.AnalysisResponse:
@@ -159,6 +161,7 @@ def validate_result(
             f"The function was categorized as being a sink but returns {result['return_type']}, whereas the return type of a sink musk always be nodata"
         )
     return result
+
 
 async def get_function_model(
     ctx: RunContext[Context], function_name: str
@@ -272,6 +275,7 @@ def main() -> None:
     if args.enable_logfire:
         logfire.configure(scrubbing=False)
         logfire.instrument_anthropic()
+        logging.basicConfig(handlers=[logfire.LogfireLoggingHandler()])
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
