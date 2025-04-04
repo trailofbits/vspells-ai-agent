@@ -2,7 +2,7 @@ import asyncio
 import inspect
 import json
 from typing import Callable
-from pydantic import TypeAdapter, ValidationError
+from pydantic import TypeAdapter, ValidationError, validate_call
 import logging
 
 from .transport import JsonRpcTransport
@@ -44,6 +44,25 @@ class JsonRpcException(Exception):
             return JsonRpcException(err["message"], err["code"])
 
 
+def _check_handler_sig(func: Callable):
+    sig = inspect.signature(func)
+    has_positional = False
+    has_keyword = False
+    for param in sig.parameters.values():
+        match param.kind:
+            case inspect.Parameter.POSITIONAL_ONLY | inspect.Parameter.VAR_POSITIONAL:
+                has_positional = True
+            case inspect.Parameter.KEYWORD_ONLY | inspect.Parameter.VAR_KEYWORD:
+                has_keyword = True
+            case inspect.Parameter.POSITIONAL_OR_KEYWORD:
+                has_positional = True
+                has_keyword = True
+    if has_positional and has_keyword:
+        raise ValueError(
+            "Handler functions must accept either only positional arguments or only keyword arguments"
+        )
+
+
 class JsonRpcConnection:
     def __init__(self, transport: JsonRpcTransport):
         self._transport = transport
@@ -56,14 +75,16 @@ class JsonRpcConnection:
 
     def rpc_method(self, method_name: str):
         def decorator(func):
-            self._method_handlers[method_name] = func
+            _check_handler_sig(func)
+            self._method_handlers[method_name] = validate_call(func)
             return func
 
         return decorator
 
     def rpc_notification(self, method_name: str):
         def decorator(func):
-            self._noti_handlers[method_name] = func
+            _check_handler_sig(func)
+            self._noti_handlers[method_name] = validate_call(func)
             return func
 
         return decorator
@@ -121,17 +142,10 @@ class JsonRpcConnection:
     def _dispatch_handler(self, func: Callable, params: dict | list | None):
         if params is None:
             return func()
+        elif isinstance(params, list):
+            return func(*params)
         else:
-            # Convert list params to positional args, dict params to keyword args
-            if isinstance(params, list):
-                return func(*params)
-            elif isinstance(params, dict):
-                sig = inspect.signature(func)
-                # Filter the params dict to only include parameters the handler accepts
-                filtered_params = {
-                    k: v for k, v in params.items() if k in sig.parameters
-                }
-                return func(**filtered_params)
+            return func(**params)
 
     def _handle_notification(self, noti: JsonRpcNotification):
         logger.debug("Handling notification", extra={"jsonRpcMsg": noti})
@@ -147,7 +161,19 @@ class JsonRpcConnection:
             return
 
         handler = self._noti_handlers[method]
-        coro = self._dispatch_handler(handler, noti.get("params"))
+
+        async def do_handling(handler: Callable, params: list | dict | None):
+            try:
+                await self._dispatch_handler(handler, params)
+            except ValidationError:
+                logger.warning(
+                    "Received notification %s with wrong parameter types",
+                    method,
+                    extra={"params": params},
+                    exc_info=True,
+                )
+
+        coro = do_handling(handler, noti.get("params"))
         self._noti_tasks.append(asyncio.create_task(coro))
 
     async def _send_response(self, id: str | int, coro):
@@ -156,6 +182,10 @@ class JsonRpcConnection:
             await self._send_obj(JsonRpcResult(jsonrpc="2.0", id=id, result=res))
         except JsonRpcException as e:
             await self._send_err(id, e.to_err())
+        except ValidationError as e:
+            await self._send_err(
+                id, JsonRpcError(message=e.title(), code=JSONRPC_INVALID_REQUEST)
+            )
         except Exception as e:
             await self._send_err(
                 id, JsonRpcError(message=str(e), code=JSONRPC_INTERNAL_ERROR)
