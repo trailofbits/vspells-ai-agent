@@ -1,7 +1,7 @@
 import asyncio
 import inspect
 import json
-from typing import Callable
+from typing import Callable, Type
 from pydantic import TypeAdapter, ValidationError, validate_call
 import logging
 
@@ -23,9 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class JsonRpcException(Exception):
-    def __init__(
-        self, message: str, code: int, data: dict | list | None = None
-    ):
+    def __init__(self, message: str, code: int, data: dict | list | None = None):
         super(JsonRpcException, self).__init__(message)
         self.code = code
         self.data = data
@@ -68,6 +66,46 @@ def _check_handler_sig(func: Callable):
         )
 
 
+def method(name_or_func: str | Callable):
+    if isinstance(name_or_func, str):
+        name = name_or_func
+    else:
+        name = name_or_func.__name__
+
+    def decorator(func):
+        if not inspect.iscoroutinefunction(func):
+            raise ValueError("Only async methods can be RPC methods")
+        if getattr(func, "__jsonrpc_notification__", None) is not None:
+            raise ValueError("A method can't also be a notification")
+        func.__jsonrpc_method__ = name
+        return func
+
+    if isinstance(name_or_func, str):
+        return decorator
+    else:
+        return decorator(name_or_func)
+
+
+def notification(name_or_func: str | Callable):
+    if isinstance(name_or_func, str):
+        name = name_or_func
+    else:
+        name = name_or_func.__name__
+
+    def decorator(func):
+        if not inspect.iscoroutinefunction(func):
+            raise ValueError("Only async methods can be RPC notifications")
+        if getattr(func, "__jsonrpc_method__", None) is not None:
+            raise ValueError("A notification can't also be a method")
+        func.__jsonrpc_notification__ = name
+        return func
+
+    if isinstance(name_or_func, str):
+        return decorator
+    else:
+        return decorator(name_or_func)
+
+
 class JsonRpcConnection:
     def __init__(self, transport: JsonRpcTransport):
         self._transport = transport
@@ -77,6 +115,51 @@ class JsonRpcConnection:
         self._method_handlers: dict[str, Callable] = {}
         self._noti_handlers: dict[str, Callable] = {}
         self._queue: asyncio.Queue[JsonRpcMessage] = asyncio.Queue()
+
+    def get_client[T](self, proto: Type[T]) -> T:
+        attributes = {}
+
+        for attr_name in dir(proto):
+            if attr_name.startswith("_"):
+                continue
+
+            attr = getattr(proto, attr_name)
+
+            if not callable(attr):
+                raise ValueError("Clients must only expose methods")
+
+            method: str | None = getattr(attr, "__jsonrpc_method__", None)
+            notification: str | None = getattr(attr, "__jsonrpc_notification__", None)
+            sig = inspect.signature(attr)
+
+            if method is not None:
+
+                def get_method_impl(name, sig):
+                    @validate_call
+                    async def method_impl(self, *args, **kwargs):
+                        inspect.signature(method_impl).bind(self, *args, **kwargs)
+                        return await self._conn.send_request(name, *args, **kwargs)
+                    method_impl.__signature__ = sig
+                    return method_impl
+
+                attributes[attr_name] = get_method_impl(method, sig)
+            elif notification is not None:
+
+                def get_notification_impl(name, sig):
+                    @validate_call
+                    async def notification_impl(self, *args, **kwargs):
+                        inspect.signature(notification_impl).bind(self, *args, **kwargs)
+                        await self._conn.send_notification(name, *args, **kwargs)
+                    notification_impl.__signature__ = sig
+                    return notification_impl
+
+                attributes[attr_name] = get_notification_impl(notification, sig)
+            else:
+                raise ValueError("Only methods and notifications are supported")
+        klass = type(f"JsonRpc{proto.__name__}", (), attributes)
+        instance = klass()
+        instance._conn = self
+        return instance
 
     def rpc_method(self, method_name: str, func: Callable | None = None):
         def decorator(func):

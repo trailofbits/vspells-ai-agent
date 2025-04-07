@@ -1,5 +1,6 @@
-from .jsonrpc import JsonRpcConnection
+from . import jsonrpc
 
+from pydantic import BaseModel
 from pydantic_ai import RunContext, Tool, ModelRetry
 from typing import TypedDict, NotRequired, Protocol
 import logging
@@ -27,8 +28,8 @@ class InitializeResult(TypedDict):
     serverInfo: NotRequired[ServerInfo]
 
 
-class Position(TypedDict):
-    """Position in a text document expressed as zero-based line and zero-based character offset. A position is between two characters like an ‘insert’ cursor in an editor. Special values like for example -1 to denote the end of a line are not supported."""
+class Position(BaseModel):
+    """Position in a text document expressed as zero-based line and zero-based character offset. A position is between two characters like an 'insert' cursor in an editor. Special values like for example -1 to denote the end of a line are not supported."""
 
     line: int
     """Line position in a document (zero-based)."""
@@ -37,7 +38,7 @@ class Position(TypedDict):
     """Character offset on a line in a document (zero-based)."""
 
 
-class Range(TypedDict):
+class Range(BaseModel):
     """A range in a text document expressed as (zero-based) start and end positions. A range is comparable to a selection in an editor. Therefore, the end position is exclusive. If you want to specify a range that contains a line including the line ending character(s) then use an end position denoting the start of the next line."""
 
     start: Position
@@ -47,50 +48,83 @@ class Range(TypedDict):
     """The range's end position."""
 
 
-class Location(TypedDict):
+class Location(BaseModel):
     """A location inside a resource, such as a line inside a text file."""
 
     uri: str
     range: Range
 
 
-class TextDocumentIdentifier(TypedDict):
+class TextDocumentIdentifier(BaseModel):
     """Text documents are identified using a URI."""
 
     uri: str
     """The text document's URI. Includes protocol (e.g. file:// )"""
 
 
+class TextDocumentOpen(BaseModel):
+    uri: str
+    languageId: str
+    version: int
+    text: str
+
+
 class LSPContext(Protocol):
-    lsp: JsonRpcConnection
+    lsp: "LSPClient"
 
 
-async def openDocument(client: JsonRpcConnection, uri: str):
+class LSPClient:
+    @jsonrpc.notification("textDocument/didOpen")
+    async def open_document(self, *, textDocument: TextDocumentOpen): ...
+
+    @jsonrpc.method
+    async def initialize(self, *, clientCapabilities: dict) -> InitializeResult: ...  # type: ignore[empty-body]
+
+    @jsonrpc.method("textDocument/declaration")
+    async def goto_declaration(
+        self, *, textDocument: TextDocumentIdentifier, position: Position
+    ) -> Location | list[Location] | None: ...
+
+    @jsonrpc.method("textDocument/definition")
+    async def goto_definition(
+        self, *, textDocument: TextDocumentIdentifier, position: Position
+    ) -> Location | list[Location] | None: ...
+
+    @jsonrpc.method("textDocument/typeDefinition")
+    async def goto_type_definition(
+        self, *, textDocument: TextDocumentIdentifier, position: Position
+    ) -> Location | list[Location] | None: ...
+
+    @jsonrpc.method("textDocument/implementation")
+    async def goto_implementation(
+        self, *, textDocument: TextDocumentIdentifier, position: Position
+    ) -> Location | list[Location] | None: ...
+
+    @jsonrpc.method("textDocument/references")
+    async def find_references(
+        self, *, textDocument: TextDocumentIdentifier, position: Position
+    ) -> Location | list[Location] | None: ...
+
+
+async def open_document(client: LSPClient, uri: str):
     if not uri.startswith("file://"):
         raise ModelRetry("URIs must start with a protocol name (e.g. file://)")
     with open(uri[len("file://") :]) as file:
         text = file.read()
-    await client.send_notification(
-        "textDocument/didOpen",
-        textDocument={
-            "uri": uri,
-            "languageId": "c",
-            "version": 0,
-            "text": text,
-        },
+    await client.open_document(
+        textDocument=TextDocumentOpen(uri=uri, languageId="c", version=0, text=text),
     )
 
 
-async def gotoDeclaration(
+async def lsp_goto_declaration(
     ctx: RunContext[LSPContext],
     textDocument: TextDocumentIdentifier,
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve the declaration location of a symbol at a given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
     try:
-        await openDocument(ctx.deps.lsp, textDocument["uri"])
-        return await ctx.deps.lsp.send_request(
-            "textDocument/declaration",
+        await open_document(ctx.deps.lsp, textDocument.uri)
+        return await ctx.deps.lsp.goto_declaration(
             textDocument=textDocument,
             position=position,
         )
@@ -98,16 +132,15 @@ async def gotoDeclaration(
         raise ModelRetry(str(ex)) from ex
 
 
-async def gotoDefinition(
+async def lsp_goto_definition(
     ctx: RunContext[LSPContext],
     textDocument: TextDocumentIdentifier,
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve the definition location of a symbol at a given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
     try:
-        await openDocument(ctx.deps.lsp, textDocument["uri"])
-        return await ctx.deps.lsp.send_request(
-            "textDocument/definition",
+        await open_document(ctx.deps.lsp, textDocument.uri)
+        return await ctx.deps.lsp.goto_definition(
             textDocument=textDocument,
             position=position,
         )
@@ -115,16 +148,15 @@ async def gotoDefinition(
         raise ModelRetry(str(ex)) from ex
 
 
-async def gotoTypeDefinition(
+async def lsp_goto_type_definition(
     ctx: RunContext[LSPContext],
     textDocument: TextDocumentIdentifier,
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve the type definition location of a symbol at a given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
     try:
-        await openDocument(ctx.deps.lsp, textDocument["uri"])
-        return await ctx.deps.lsp.send_request(
-            "textDocument/typeDefinition",
+        await open_document(ctx.deps.lsp, textDocument.uri)
+        return await ctx.deps.lsp.goto_type_definition(
             textDocument=textDocument,
             position=position,
         )
@@ -132,16 +164,15 @@ async def gotoTypeDefinition(
         raise ModelRetry(str(ex)) from ex
 
 
-async def gotoImplementation(
+async def lsp_goto_implementation(
     ctx: RunContext[LSPContext],
     textDocument: TextDocumentIdentifier,
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve the implementation location of a symbol at a given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
     try:
-        await openDocument(ctx.deps.lsp, textDocument["uri"])
-        return await ctx.deps.lsp.send_request(
-            "textDocument/implementation",
+        await open_document(ctx.deps.lsp, textDocument.uri)
+        return await ctx.deps.lsp.goto_implementation(
             textDocument=textDocument,
             position=position,
         )
@@ -149,16 +180,15 @@ async def gotoImplementation(
         raise ModelRetry(str(ex)) from ex
 
 
-async def findReferences(
+async def lsp_find_references(
     ctx: RunContext[LSPContext],
     textDocument: TextDocumentIdentifier,
     position: Position,
 ) -> Location | list[Location] | None:
     """Resolve project-wide references for the symbol denoted by the given text document position. Remember all URIs must start with a protocol (e.g. file:// )"""
     try:
-        await openDocument(ctx.deps.lsp, textDocument["uri"])
-        return await ctx.deps.lsp.send_request(
-            "textDocument/references",
+        await open_document(ctx.deps.lsp, textDocument.uri)
+        return await ctx.deps.lsp.find_references(
             textDocument=textDocument,
             position=position,
         )
@@ -166,7 +196,7 @@ async def findReferences(
         raise ModelRetry(str(ex)) from ex
 
 
-async def readFile(ctx: RunContext[LSPContext], uri: str, range: Range):
+async def lsp_read_file(ctx: RunContext[LSPContext], uri: str, range: Range) -> str:
     """Reads the contents of a file. Remember all URIs must start with a protocol (e.g. file:// )"""
     if not uri.startswith("file://"):
         raise ModelRetry("URIs must start with a protocol name (e.g. file://)")
@@ -174,14 +204,14 @@ async def readFile(ctx: RunContext[LSPContext], uri: str, range: Range):
         with open(uri[len("file://") :]) as file:
             lines = file.readlines()
             lines_nos = list(map(lambda x: f"{x[0]}: {x[1]}", enumerate(lines)))
-            return "    ".join(lines_nos[range["start"]["line"] : range["end"]["line"]])
+            return "    ".join(lines_nos[range.start.line : range.end.line])
     except Exception as ex:
         raise ModelRetry(str(ex)) from ex
 
 
-async def initialize(lsp: JsonRpcConnection) -> list[Tool[LSPContext]]:
-    result: InitializeResult = await lsp.send_request(
-        "initialize", clientCapabilities={}
+async def initialize(lsp: LSPClient) -> list[Tool[LSPContext]]:
+    result = await lsp.initialize(
+        clientCapabilities={},
     )
     logger.info(
         "LSP connection initialized with %s",
@@ -192,31 +222,16 @@ async def initialize(lsp: JsonRpcConnection) -> list[Tool[LSPContext]]:
         },
     )
 
-    tools: list[Tool[LSPContext]] = [Tool(readFile, name="lsp_read_file")]
-    if (
-        "declarationProvider" in result["capabilities"]
-        and result["capabilities"]["declarationProvider"]
-    ):
-        tools.append(Tool(gotoDeclaration, name="lsp_goto_declaration"))
-    if (
-        "definitionProvider" in result["capabilities"]
-        and result["capabilities"]["definitionProvider"]
-    ):
-        tools.append(Tool(gotoDefinition, name="lsp_goto_definition"))
-    if (
-        "typeDefinitionProvider" in result["capabilities"]
-        and result["capabilities"]["typeDefinitionProvider"]
-    ):
-        tools.append(Tool(gotoTypeDefinition, name="lsp_goto_type_definition"))
-    if (
-        "implementationProvider" in result["capabilities"]
-        and result["capabilities"]["implementationProvider"]
-    ):
-        tools.append(Tool(gotoImplementation, name="lsp_goto_implementation"))
-    if (
-        "referencesProvider" in result["capabilities"]
-        and result["capabilities"]["referencesProvider"]
-    ):
-        tools.append(Tool(findReferences, name="lsp_find_references"))
+    tools: list[Tool[LSPContext]] = [Tool(lsp_read_file)]
+    if result["capabilities"].get("declarationProvider"):
+        tools.append(Tool(lsp_goto_declaration))
+    if result["capabilities"].get("definitionProvider"):
+        tools.append(Tool(lsp_goto_definition))
+    if result["capabilities"].get("typeDefinitionProvider"):
+        tools.append(Tool(lsp_goto_type_definition))
+    if result["capabilities"].get("implementationProvider"):
+        tools.append(Tool(lsp_goto_implementation))
+    if result["capabilities"].get("referencesProvider"):
+        tools.append(Tool(lsp_find_references))
 
     return tools

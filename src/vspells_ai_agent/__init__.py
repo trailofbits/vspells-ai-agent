@@ -27,10 +27,15 @@ class Range(TypedDict):
     end: Position
 
 
+class VastClient:
+    @jsonrpc.method
+    async def get_function_model(self, *, functionName: str) -> prompts.FunctionModel: ...  # type: ignore
+
+
 @dataclass(kw_only=True)
-class Context:
-    client: jsonrpc.JsonRpcConnection
-    lsp: jsonrpc.JsonRpcConnection
+class Context(lsp_client.LSPContext):
+    client: VastClient
+    lsp: lsp_client.LSPClient
     analysis_agent: Agent["Context", prompts.AnalysisResponse]
     feedback_agent: Agent["Context", prompts.FeedbackResponse]
     function_name: str
@@ -94,8 +99,8 @@ class AnalysisFeedback(BaseNode[State, Context, prompts.FunctionModel]):
 class AnalysisService:
     def __init__(
         self,
-        client: jsonrpc.JsonRpcConnection,
-        lsp: jsonrpc.JsonRpcConnection,
+        client: VastClient,
+        lsp: lsp_client.LSPClient,
         analysis_agent: Agent[Context, prompts.AnalysisResponse],
         feedback_agent: Agent[Context, prompts.FeedbackResponse],
     ):
@@ -178,9 +183,7 @@ async def get_function_model(
     """Returns the model of a function that has been analyzed beforehand"""
 
     try:
-        return await ctx.deps.client.send_request(
-            "get_function_model", functionName=function_name
-        )
+        return await ctx.deps.client.get_function_model(functionName=function_name)
     except Exception as ex:
         raise ModelRetry(str(ex)) from ex
 
@@ -202,9 +205,8 @@ async def _run(path: str, clang_path: str | None, disable_ddg: bool, disable_man
         )
 
         clangd_task = asyncio.create_task(clangd.run())
-        tools = await lsp_client.initialize(clangd)
-    else:
-        tools = []
+        clangd_client = clangd.get_client(lsp_client.LSPClient)
+        tools = await lsp_client.initialize(clangd_client)
 
     (reader, writer) = await asyncio.open_unix_connection(path)
     client = jsonrpc.JsonRpcConnection(jsonrpc.JsonRpcStreamTransport(reader, writer))
@@ -247,7 +249,12 @@ async def _run(path: str, clang_path: str | None, disable_ddg: bool, disable_man
 
     analysis_agent.result_validator(validate_result)
 
-    service = AnalysisService(client, clangd, analysis_agent, feedback_agent)
+    service = AnalysisService(
+        client.get_client(VastClient),
+        clangd_client,
+        analysis_agent,
+        feedback_agent,
+    )
     client.rpc_method("input", service.input_request)
 
     await client.run()
