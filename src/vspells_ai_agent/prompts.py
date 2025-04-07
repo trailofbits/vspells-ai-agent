@@ -279,7 +279,12 @@ def provide_feedback(
     response: AnalysisResponse,
 ):
     reasoning = response["reasoning"]
-    del response["reasoning"]
+    model = FunctionModel(
+        category=response["category"],
+        return_type=response["return_type"],
+        arguments=response["arguments"],
+        is_stdlib=response["is_stdlib"],
+    )
     import json
     return f"""Your task is to provide feedback on a machine's analysis of a specific function in a C source file.
 
@@ -309,7 +314,7 @@ The machine has categorized this function as follows:
 
 <analysis>
 {
-    json.dumps(response, indent=2)
+    json.dumps(model, indent=2)
 }
 </analysis>
 

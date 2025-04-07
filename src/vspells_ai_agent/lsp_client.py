@@ -17,11 +17,12 @@ class ServerCapabilities(TypedDict):
     typeHierarchyProvider: NotRequired[dict | bool]
 
 
-class InitializeResult(TypedDict):
-    class ServerInfo(TypedDict):
-        name: str
-        version: NotRequired[str]
+class ServerInfo(TypedDict):
+    name: str
+    version: NotRequired[str]
 
+
+class InitializeResult(TypedDict):
     capabilities: ServerCapabilities
     serverInfo: NotRequired[ServerInfo]
 
@@ -182,10 +183,14 @@ async def initialize(lsp: JsonRpcConnection) -> list[Tool[LSPContext]]:
     result: InitializeResult = await lsp.send_request(
         "initialize", clientCapabilities={}
     )
-    logger.info("LSP connection initialized with %s", result["serverInfo"]["name"], extra={
-        "serverInfo": result["serverInfo"],
-        "serverCapabilities": result["capabilities"]
-    })
+    logger.info(
+        "LSP connection initialized with %s",
+        result["serverInfo"]["name"],
+        extra={
+            "serverInfo": result["serverInfo"],
+            "serverCapabilities": result["capabilities"],
+        },
+    )
 
     tools: list[Tool[LSPContext]] = [Tool(readFile, name="lsp_read_file")]
     if (

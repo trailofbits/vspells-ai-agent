@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class JsonRpcException(Exception):
     def __init__(
-        self, message: str, code: int, data: str | int | dict | list | None = None
+        self, message: str, code: int, data: dict | list | None = None
     ):
         super(JsonRpcException, self).__init__(message)
         self.code = code
@@ -76,13 +76,14 @@ class JsonRpcConnection:
         self._noti_tasks: list[asyncio.Task] = []
         self._method_handlers: dict[str, Callable] = {}
         self._noti_handlers: dict[str, Callable] = {}
-        self._queue = asyncio.Queue()
+        self._queue: asyncio.Queue[JsonRpcMessage] = asyncio.Queue()
 
     def rpc_method(self, method_name: str, func: Callable | None = None):
         def decorator(func):
             _check_handler_sig(func)
             self._method_handlers[method_name] = validate_call(func)
             return func
+
         if func is None:
             return decorator
         else:
@@ -93,6 +94,7 @@ class JsonRpcConnection:
             _check_handler_sig(func)
             self._noti_handlers[method_name] = validate_call(func)
             return func
+
         if func is None:
             return decorator
         else:
@@ -121,7 +123,7 @@ class JsonRpcConnection:
             return None
 
     async def send_request(self, method: str, *args, **kwargs):
-        params = self._get_params(args, kwargs)
+        params = self._get_params(list(args), kwargs)
 
         id = self._next_id
         self._next_id = self._next_id + 1
@@ -139,7 +141,7 @@ class JsonRpcConnection:
         return await future
 
     async def send_notification(self, method: str, *args, **kwargs):
-        params = self._get_params(args, kwargs)
+        params = self._get_params(list(args), kwargs)
 
         if params is not None:
             req = JsonRpcNotification(jsonrpc="2.0", method=method, params=params)
@@ -193,7 +195,10 @@ class JsonRpcConnection:
             await self._send_err(id, e.to_err())
         except ValidationError as e:
             await self._send_err(
-                id, JsonRpcError(message=e.title(), code=JSONRPC_INVALID_REQUEST)
+                id,
+                JsonRpcError(
+                    message=str(e), code=JSONRPC_INVALID_REQUEST, data=e.errors()
+                ),
             )
         except Exception as e:
             await self._send_err(

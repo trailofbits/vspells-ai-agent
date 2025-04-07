@@ -4,7 +4,7 @@ from . import lsp_client
 from . import man
 
 import asyncio
-from typing import TypedDict
+from typing import TypedDict, Sequence
 from dataclasses import dataclass, field
 import logging
 
@@ -74,7 +74,7 @@ class AnalysisFeedback(BaseNode[State, Context, prompts.FunctionModel]):
     analysis: prompts.AnalysisResponse
 
     async def run(
-        self, ctx: GraphRunContext[Context]
+        self, ctx: GraphRunContext[State, Context]
     ) -> AnalyzeFunction | End[prompts.FunctionModel]:
         prompt = prompts.provide_feedback(
             ctx.deps.file_contents,
@@ -84,7 +84,7 @@ class AnalysisFeedback(BaseNode[State, Context, prompts.FunctionModel]):
             ctx.deps.file_path,
             self.analysis,
         )
-        result = await self.deps.feedback_agent.run(prompt, deps=ctx.deps)
+        result = await ctx.deps.feedback_agent.run(prompt, deps=ctx.deps)
         if result.data.accept_analysis:
             return End(self.analysis)
         else:
@@ -104,9 +104,7 @@ class AnalysisService:
         self._analysis_agent = analysis_agent
         self._feedback_agent = feedback_agent
 
-        self._client.rpc_method("input", self._input_request)
-
-    async def _input_request(
+    async def input_request(
         self,
         *,
         functionName: str,
@@ -136,7 +134,7 @@ class AnalysisService:
             function_name=functionName,
             expected_arg_no=numberOfArguments,
             file_contents=file_contents,
-            file_path=filePath,
+            file_path=filePath or "",
             usage_context=usage_context,
         )
 
@@ -188,12 +186,16 @@ async def get_function_model(
 
 
 async def _run(path: str, clang_path: str | None, disable_ddg: bool, disable_man: bool):
+    tools: Sequence[Tool[Context]] = []
     if clang_path is not None:
         clangd_proc = await asyncio.create_subprocess_exec(
             clang_path,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
         )
+
+        assert clangd_proc.stdout is not None
+        assert clangd_proc.stdin is not None
 
         clangd = jsonrpc.JsonRpcConnection(
             jsonrpc.JsonRpcStreamTransport(clangd_proc.stdout, clangd_proc.stdin)
@@ -208,12 +210,18 @@ async def _run(path: str, clang_path: str | None, disable_ddg: bool, disable_man
     client = jsonrpc.JsonRpcConnection(jsonrpc.JsonRpcStreamTransport(reader, writer))
 
     if not disable_ddg:
-        tools.append(duckduckgo_search_tool())
+        tmp = list(tools)
+        tmp.append(duckduckgo_search_tool())
+        tools = tmp
 
     if not disable_man:
-        tools.append(man.man)
+        tmp = list(tools)
+        tmp.append(Tool(man.man))
+        tools = tmp
 
-    tools.append(Tool(get_function_model))
+    tmp = list(tools)
+    tmp.append(Tool(get_function_model))
+    tools = tmp
 
     analysis_agent = Agent(
         "anthropic:claude-3-7-sonnet-latest",
@@ -240,6 +248,7 @@ async def _run(path: str, clang_path: str | None, disable_ddg: bool, disable_man
     analysis_agent.result_validator(validate_result)
 
     service = AnalysisService(client, clangd, analysis_agent, feedback_agent)
+    client.rpc_method("input", service.input_request)
 
     await client.run()
 

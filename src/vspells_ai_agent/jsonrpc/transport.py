@@ -32,7 +32,7 @@ class JsonRpcStreamTransport:
                 continue
 
             length = int(headers["content-length"])
-            return await self._reader.readexactly(length)
+            return (await self._reader.readexactly(length)).decode()
 
     def _write_headers(self, headers: dict[str, str]):
         for key, value in headers.items():

@@ -9,6 +9,7 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "logfire>=3.11.0",
+    "mypy>=1.15.0",
     "pydantic-ai-slim[duckduckgo]>=0.0.45",
     "pydantic-ai[logfire]>=0.0.45",
     "pydantic-graph>=0.0.45",
