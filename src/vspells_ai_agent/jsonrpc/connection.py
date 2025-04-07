@@ -23,6 +23,13 @@ logger = logging.getLogger(__name__)
 
 
 class JsonRpcException(Exception):
+    """Exception raised for JSON-RPC specific errors.
+
+    Args:
+        message (str): The error message
+        code (int): The JSON-RPC error code
+        data (dict | list | None, optional): Additional error data. Defaults to None.
+    """
     def __init__(self, message: str, code: int, data: dict | list | None = None):
         super(JsonRpcException, self).__init__(message)
         self.code = code
@@ -67,6 +74,22 @@ def _check_handler_sig(func: Callable):
 
 
 def method(name_or_func: str | Callable):
+    """Decorator to mark a function as a JSON-RPC method.
+
+    The decorated function must be async and cannot be a notification.
+    If a string argument is provided, it will be used as the method name,
+    otherwise the function name will be used.
+
+    Args:
+        name_or_func (str | Callable): Either the method name as a string,
+            or the function to decorate.
+
+    Returns:
+        Callable: The decorated function.
+
+    Raises:
+        ValueError: If the decorated function is not async or is already a notification.
+    """
     if isinstance(name_or_func, str):
         name = name_or_func
     else:
@@ -87,6 +110,22 @@ def method(name_or_func: str | Callable):
 
 
 def notification(name_or_func: str | Callable):
+    """Decorator to mark a function as a JSON-RPC notification handler.
+
+    The decorated function must be async and cannot be a method.
+    If a string argument is provided, it will be used as the notification name,
+    otherwise the function name will be used.
+
+    Args:
+        name_or_func (str | Callable): Either the notification name as a string,
+            or the function to decorate.
+
+    Returns:
+        Callable: The decorated function.
+
+    Raises:
+        ValueError: If the decorated function is not async or is already a method.
+    """
     if isinstance(name_or_func, str):
         name = name_or_func
     else:
@@ -107,6 +146,14 @@ def notification(name_or_func: str | Callable):
 
 
 class JsonRpcConnection:
+    """Manages a JSON-RPC connection over a transport layer.
+
+    This class handles sending and receiving JSON-RPC messages, including requests,
+    notifications, and responses. It supports both client and server functionality.
+
+    Args:
+        transport (JsonRpcTransport): The transport layer to use for communication.
+    """
     def __init__(self, transport: JsonRpcTransport):
         self._transport = transport
         self._next_id = 0
@@ -117,6 +164,21 @@ class JsonRpcConnection:
         self._queue: asyncio.Queue[JsonRpcMessage] = asyncio.Queue()
 
     def get_client[T](self, proto: Type[T]) -> T:
+        """Creates a strongly-typed client from a protocol class.
+
+        The protocol class should define methods decorated with @method or @notification.
+        These will be converted into actual RPC calls.
+
+        Args:
+            proto (Type[T]): The protocol class to create a client from.
+
+        Returns:
+            T: An instance of the protocol class that performs RPC calls.
+
+        Raises:
+            ValueError: If the protocol class contains non-method attributes or
+                methods without proper decorators.
+        """
         attributes = {}
 
         for attr_name in dir(proto):
@@ -162,6 +224,19 @@ class JsonRpcConnection:
         return instance
 
     def rpc_method(self, method_name: str, func: Callable | None = None):
+        """Registers a function as a handler for a specific RPC method.
+
+        The handler function must accept either only positional arguments or only
+        keyword arguments.
+
+        Args:
+            method_name (str): The name of the RPC method to handle.
+            func (Callable | None, optional): The handler function. If None,
+                returns a decorator. Defaults to None.
+
+        Returns:
+            Callable: A decorator if func is None, otherwise the decorated function.
+        """
         def decorator(func):
             _check_handler_sig(func)
             self._method_handlers[method_name] = validate_call(func)
@@ -173,6 +248,19 @@ class JsonRpcConnection:
             decorator(func)
 
     def rpc_notification(self, method_name: str, func: Callable | None = None):
+        """Registers a function as a handler for a specific RPC notification.
+
+        The handler function must accept either only positional arguments or only
+        keyword arguments.
+
+        Args:
+            method_name (str): The name of the RPC notification to handle.
+            func (Callable | None, optional): The handler function. If None,
+                returns a decorator. Defaults to None.
+
+        Returns:
+            Callable: A decorator if func is None, otherwise the decorated function.
+        """
         def decorator(func):
             _check_handler_sig(func)
             self._noti_handlers[method_name] = validate_call(func)
@@ -206,6 +294,20 @@ class JsonRpcConnection:
             return None
 
     async def send_request(self, method: str, *args, **kwargs):
+        """Sends a JSON-RPC request and waits for the response.
+
+        Args:
+            method (str): The name of the RPC method to call.
+            *args: Positional arguments to pass to the method.
+            **kwargs: Keyword arguments to pass to the method.
+
+        Returns:
+            Any: The result of the RPC call.
+
+        Raises:
+            ValueError: If both positional and keyword arguments are provided.
+            JsonRpcException: If the server returns an error response.
+        """
         params = self._get_params(list(args), kwargs)
 
         id = self._next_id
@@ -224,6 +326,16 @@ class JsonRpcConnection:
         return await future
 
     async def send_notification(self, method: str, *args, **kwargs):
+        """Sends a JSON-RPC notification.
+
+        Args:
+            method (str): The name of the notification method.
+            *args: Positional arguments to pass to the method.
+            **kwargs: Keyword arguments to pass to the method.
+
+        Raises:
+            ValueError: If both positional and keyword arguments are provided.
+        """
         params = self._get_params(list(args), kwargs)
 
         if params is not None:
@@ -393,6 +505,17 @@ class JsonRpcConnection:
             self._queue.task_done()
 
     async def run(self):
+        """Runs the JSON-RPC connection.
+
+        This method starts the message processing loop that handles incoming
+        messages and dispatches them to the appropriate handlers.
+
+        The loop continues until an error occurs or the connection is cancelled.
+
+        Raises:
+            asyncio.CancelledError: If the connection is cancelled.
+            Exception: If an unhandled error occurs during message processing.
+        """
         try:
             read = asyncio.create_task(self._read_messages())
             dispatch = asyncio.create_task(self._dispatch_messages())
