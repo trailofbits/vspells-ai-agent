@@ -1,7 +1,52 @@
+"""JSON-RPC Connection Management
+
+This module provides the core JSON-RPC connection functionality, including:
+1. Connection management and message routing
+2. Method and notification registration
+3. Client proxy generation
+4. Error handling
+
+The module implements both client and server functionality in a single class,
+allowing for bidirectional RPC communication. It supports:
+
+- Type-safe method calls and responses
+- Asynchronous operation
+- Protocol-based client generation
+- Automatic parameter validation
+- Custom error handling
+- Notification handling
+
+Example:
+    ```python
+    # Server-side
+    class Calculator:
+        @method
+        async def add(self, a: float, b: float) -> float:
+            return a + b
+
+    transport = JsonRpcStreamTransport(reader, writer)
+    connection = JsonRpcConnection(transport)
+    calc_server = Calculator()
+    connection.rpc_method("add", calc_server.add)
+
+    await connection.run()
+
+    # Client-side
+    class CalculatorProtocol(Protocol):
+        @method
+        async def add(self, a: float, b: float) -> float: ...
+    calculator = connection.get_client(CalculatorProtocol)
+    result = await calculator.add(2.5, 3.7)
+    ```
+
+See Also:
+    - transport.py: Transport layer implementations
+"""
+
 import asyncio
 import inspect
 import json
-from typing import Callable, Type
+from typing import Callable, Type, overload, Any
 from pydantic import TypeAdapter, ValidationError, validate_call
 import logging
 
@@ -25,10 +70,24 @@ logger = logging.getLogger(__name__)
 class JsonRpcException(Exception):
     """Exception raised for JSON-RPC specific errors.
 
+    This exception class represents JSON-RPC protocol errors and can be
+    converted to and from JSON-RPC error objects.
+
     Args:
-        message (str): The error message
-        code (int): The JSON-RPC error code
-        data (dict | list | None, optional): Additional error data. Defaults to None.
+        message (str): A human-readable error description
+        code (int): The JSON-RPC error code (see messages.py for standard codes)
+        data (dict | list | None): Optional additional error data
+
+    Example:
+        ```python
+        try:
+            result = await client.method()
+        except JsonRpcException as e:
+            if e.code == JSONRPC_METHOD_NOT_FOUND:
+                print(f"Method not found: {e}")
+            else:
+                print(f"RPC error {e.code}: {e}")
+        ```
     """
     def __init__(self, message: str, code: int, data: dict | list | None = None):
         super(JsonRpcException, self).__init__(message)
@@ -36,13 +95,26 @@ class JsonRpcException(Exception):
         self.data = data
 
     def to_err(self) -> JsonRpcError:
+        """Convert the exception to a JSON-RPC error object.
+
+        Returns:
+            JsonRpcError: The error object for the JSON-RPC response
+        """
         if self.data is not None:
             return JsonRpcError(code=self.code, message=str(self), data=self.data)
         else:
             return JsonRpcError(code=self.code, message=str(self))
 
     @staticmethod
-    def from_error(err: JsonRpcError):
+    def from_error(err: JsonRpcError) -> "JsonRpcException":
+        """Create an exception from a JSON-RPC error object.
+
+        Args:
+            err (JsonRpcError): The error object from a JSON-RPC response
+
+        Returns:
+            JsonRpcException: The corresponding exception
+        """
         if "data" in err:
             return JsonRpcException(err["message"], err["code"], err["data"])
         else:
@@ -50,6 +122,17 @@ class JsonRpcException(Exception):
 
 
 def _check_handler_sig(func: Callable):
+    """Check if a handler function has a valid signature.
+
+    Handler functions must accept either only positional arguments or
+    only keyword arguments, not both.
+
+    Args:
+        func (Callable): The function to check
+
+    Raises:
+        ValueError: If the function accepts both positional and keyword arguments
+    """
     sig = inspect.signature(func)
     has_positional = False
     has_keyword = False
@@ -72,35 +155,56 @@ def _check_handler_sig(func: Callable):
             "Handler functions must accept either only positional arguments or only keyword arguments"
         )
 
+@overload
+def method[T: Callable[..., Any]](name: str) -> Callable[[T], T]: ...
 
-def method(name_or_func: str | Callable):
+@overload
+def method[T: Callable[..., Any]](func: T) -> T: ...
+
+def method(name_or_func):
     """Decorator to mark a function as a JSON-RPC method.
 
-    The decorated function must be async and cannot be a notification.
-    If a string argument is provided, it will be used as the method name,
-    otherwise the function name will be used.
+    Methods are RPC calls that expect a response. The decorated function must
+    be async and cannot also be a notification handler. The function's parameters
+    and return type will be used for runtime validation.
 
     Args:
-        name_or_func (str | Callable): Either the method name as a string,
-            or the function to decorate.
+        name_or_func (str | Callable): Either the method name to use in RPC calls,
+            or the function to decorate. If a string is provided, it will be used
+            as the method name, otherwise the function's name will be used.
 
     Returns:
         Callable: The decorated function.
 
     Raises:
         ValueError: If the decorated function is not async or is already a notification.
+
+    Example:
+        ```python
+        class Calculator:
+            @method
+            async def add(self, a: float, b: float) -> float: ...
+
+            @method("multiply")  # Use custom method name
+            async def mul(self, a: float, b: float) -> float: ...
+        ```
+
+    Note:
+        The decorated function must accept either only positional arguments
+        or only keyword arguments, not both. This ensures unambiguous parameter
+        passing over RPC.
     """
     if isinstance(name_or_func, str):
         name = name_or_func
     else:
         name = name_or_func.__name__
 
-    def decorator(func):
+    def decorator[T: Callable[..., Any]](func: T) -> T:
         if not inspect.iscoroutinefunction(func):
             raise ValueError("Only async methods can be RPC methods")
         if getattr(func, "__jsonrpc_notification__", None) is not None:
             raise ValueError("A method can't also be a notification")
-        func.__jsonrpc_method__ = name
+        setattr(func, "__jsonrpc_method__", name)
         return func
 
     if isinstance(name_or_func, str):
@@ -108,35 +212,56 @@ def method(name_or_func: str | Callable):
     else:
         return decorator(name_or_func)
 
+@overload
+def notification[T: Callable[..., Any]](name: str) -> Callable[[T], T]: ...
 
-def notification(name_or_func: str | Callable):
+@overload
+def notification[T: Callable[..., Any]](func: T) -> T: ...
+
+def notification(name_or_func):
     """Decorator to mark a function as a JSON-RPC notification handler.
 
-    The decorated function must be async and cannot be a method.
-    If a string argument is provided, it will be used as the notification name,
-    otherwise the function name will be used.
+    Notifications are one-way messages that don't expect a response. The decorated
+    function must be async and cannot also be a method handler. The function's
+    parameters will be used for runtime validation.
 
     Args:
-        name_or_func (str | Callable): Either the notification name as a string,
-            or the function to decorate.
+        name_or_func (str | Callable): Either the notification name to handle,
+            or the function to decorate. If a string is provided, it will be used
+            as the notification name, otherwise the function's name will be used.
 
     Returns:
         Callable: The decorated function.
 
     Raises:
         ValueError: If the decorated function is not async or is already a method.
+
+    Example:
+        ```python
+        class Logger:
+            @notification
+            async def log(self, message: str, level: str = "info"): ...
+
+            @notification("system.status")  # Use custom notification name
+            async def status(self, status: str): ...
+        ```
+
+    Note:
+        The decorated function must accept either only positional arguments
+        or only keyword arguments, not both. This ensures unambiguous parameter
+        passing over RPC.
     """
     if isinstance(name_or_func, str):
         name = name_or_func
     else:
         name = name_or_func.__name__
 
-    def decorator(func):
+    def decorator[T: Callable[..., Any]](func: T) -> T:
         if not inspect.iscoroutinefunction(func):
             raise ValueError("Only async methods can be RPC notifications")
         if getattr(func, "__jsonrpc_method__", None) is not None:
             raise ValueError("A notification can't also be a method")
-        func.__jsonrpc_notification__ = name
+        setattr(func, "__jsonrpc_notification__", name)
         return func
 
     if isinstance(name_or_func, str):
@@ -148,13 +273,54 @@ def notification(name_or_func: str | Callable):
 class JsonRpcConnection:
     """Manages a JSON-RPC connection over a transport layer.
 
-    This class handles sending and receiving JSON-RPC messages, including requests,
-    notifications, and responses. It supports both client and server functionality.
+    This class handles the core JSON-RPC protocol functionality, including:
+    - Message sending and receiving
+    - Method and notification routing
+    - Request/response correlation
+    - Error handling
+    - Client proxy generation
+
+    The connection can act as both client and server simultaneously, allowing
+    for bidirectional RPC communication. It supports both method calls that
+    expect responses and one-way notifications.
 
     Args:
         transport (JsonRpcTransport): The transport layer to use for communication.
+            This handles the actual sending and receiving of messages.
+
+    Example:
+        ```python
+        # Create a connection
+        transport = JsonRpcStreamTransport(reader, writer)
+        connection = JsonRpcConnection(transport)
+
+        # Server-side: Register method handlers
+        class Calculator:
+            @method
+            async def add(self, a: float, b: float) -> float:
+                return a + b
+
+        calc_server = Calculator()
+        connection.rpc_method("add", calc.add)
+
+        await connection.run()
+
+        # Client-side: Create type-safe client
+        class CalculatorProtocol:
+            @method
+            async def add(self, a: float, b: float) -> float: ...
+
+        calc_client = connection.get_client(CalculatorProtocol)
+        result = await calc_client.add(2.5, 3.7)
+        ```
     """
+
     def __init__(self, transport: JsonRpcTransport):
+        """Initialize the JSON-RPC connection.
+
+        Args:
+            transport (JsonRpcTransport): The transport layer to use.
+        """
         self._transport = transport
         self._next_id = 0
         self._pending_requests: dict[str | int, asyncio.Future] = {}
@@ -164,20 +330,44 @@ class JsonRpcConnection:
         self._queue: asyncio.Queue[JsonRpcMessage] = asyncio.Queue()
 
     def get_client[T](self, proto: Type[T]) -> T:
-        """Creates a strongly-typed client from a protocol class.
+        """Create a strongly-typed client from a protocol class.
 
-        The protocol class should define methods decorated with @method or @notification.
-        These will be converted into actual RPC calls.
+        This method creates a proxy object that implements the given protocol
+        by converting method calls into JSON-RPC requests. The protocol class
+        should define its methods using the @method and @notification decorators.
+
+        The proxy object provides type safety and IDE support by using the
+        protocol's type hints for parameters and return types. All parameters
+        and return values are validated at runtime using Pydantic.
 
         Args:
-            proto (Type[T]): The protocol class to create a client from.
+            proto (Type[T]): A class defining the RPC interface.
+                Methods should be decorated with @method or @notification.
 
         Returns:
-            T: An instance of the protocol class that performs RPC calls.
+            T: A proxy object implementing the class. Method calls on this
+                object will be converted to RPC requests.
 
         Raises:
-            ValueError: If the protocol class contains non-method attributes or
+            ValueError: If the protocol contains non-method attributes or
                 methods without proper decorators.
+
+        Example:
+            ```python
+            class MathService:
+                @method
+                async def add(self, a: float, b: float) -> float: ...
+
+                @method
+                async def multiply(self, a: float, b: float) -> float: ...
+
+                @notification
+                async def log_operation(self, op: str): ...
+
+            client = connection.get_client(MathService)
+            result = await client.add(2.5, 3.7)  # Type-safe RPC call
+            await client.log_operation("add")    # Type-safe notification
+            ```
         """
         attributes = {}
 
