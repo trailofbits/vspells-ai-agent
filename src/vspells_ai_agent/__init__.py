@@ -2,6 +2,7 @@ import asyncio
 import logging
 from dataclasses import dataclass, field
 from typing import Sequence
+import urllib.parse
 
 import logfire
 from pydantic_ai import Agent, ModelRetry, RunContext, Tool
@@ -175,7 +176,12 @@ async def get_function_model(
         raise ModelRetry(str(ex)) from ex
 
 
-async def _run(path: str, clang_path: str | None, disable_ddg: bool, disable_man: bool):
+async def _run(
+    path: urllib.parse.ParseResult,
+    clang_path: str | None,
+    disable_ddg: bool,
+    disable_man: bool,
+):
     tools: Sequence[Tool[Context]] = []
     if clang_path is not None:
         clangd_proc = await asyncio.create_subprocess_exec(
@@ -195,7 +201,13 @@ async def _run(path: str, clang_path: str | None, disable_ddg: bool, disable_man
         clangd_client = clangd.get_client(lsp_client.LSPClient)
         tools = await lsp_client.initialize(clangd_client)
 
-    (reader, writer) = await asyncio.open_unix_connection(path)
+    match path.scheme:
+        case "unix":
+            (reader, writer) = await asyncio.open_unix_connection(path.hostname)
+        case "tcp":
+            (reader, writer) = await asyncio.open_connection(path.hostname, path.port)
+        case _:
+            raise ValueError(f"Unsupported scheme {path.scheme}")
     client = jsonrpc.JsonRpcConnection(jsonrpc.JsonRpcStreamTransport(reader, writer))
 
     if not disable_ddg:
@@ -253,7 +265,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "socket_path",
-        help="Path to the Unix socket to be used for communicating with vast-detect-parsers",
+        help="URI to the socket to be used for communicating with vast-detect-parsers. Examples: tcp://localhost:1234 unix:///tmp/vast.sock",
+        type=urllib.parse.urlparse,
     )
     parser.add_argument(
         "--disable-ddg", action="store_true", help="Disables the DuckDuckGo integration"
