@@ -89,6 +89,7 @@ class JsonRpcException(Exception):
                 print(f"RPC error {e.code}: {e}")
         ```
     """
+
     def __init__(self, message: str, code: int, data: dict | list | None = None):
         super(JsonRpcException, self).__init__(message)
         self.code = code
@@ -155,11 +156,14 @@ def _check_handler_sig(func: Callable):
             "Handler functions must accept either only positional arguments or only keyword arguments"
         )
 
+
 @overload
 def method[T: Callable[..., Any]](name: str) -> Callable[[T], T]: ...
 
+
 @overload
 def method[T: Callable[..., Any]](func: T) -> T: ...
+
 
 def method(name_or_func):
     """Decorator to mark a function as a JSON-RPC method.
@@ -212,11 +216,14 @@ def method(name_or_func):
     else:
         return decorator(name_or_func)
 
+
 @overload
 def notification[T: Callable[..., Any]](name: str) -> Callable[[T], T]: ...
 
+
 @overload
 def notification[T: Callable[..., Any]](func: T) -> T: ...
+
 
 def notification(name_or_func):
     """Decorator to mark a function as a JSON-RPC notification handler.
@@ -391,6 +398,7 @@ class JsonRpcConnection:
                     async def method_impl(self, *args, **kwargs):
                         inspect.signature(method_impl).bind(self, *args, **kwargs)
                         return await self._conn.send_request(name, *args, **kwargs)
+
                     method_impl.__signature__ = sig
                     return method_impl
 
@@ -402,6 +410,7 @@ class JsonRpcConnection:
                     async def notification_impl(self, *args, **kwargs):
                         inspect.signature(notification_impl).bind(self, *args, **kwargs)
                         await self._conn.send_notification(name, *args, **kwargs)
+
                     notification_impl.__signature__ = sig
                     return notification_impl
 
@@ -427,6 +436,7 @@ class JsonRpcConnection:
         Returns:
             Callable: A decorator if func is None, otherwise the decorated function.
         """
+
         def decorator(func):
             _check_handler_sig(func)
             self._method_handlers[method_name] = validate_call(func)
@@ -451,6 +461,7 @@ class JsonRpcConnection:
         Returns:
             Callable: A decorator if func is None, otherwise the decorated function.
         """
+
         def decorator(func):
             _check_handler_sig(func)
             self._noti_handlers[method_name] = validate_call(func)

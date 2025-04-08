@@ -1,9 +1,10 @@
-from . import jsonrpc
+import logging
+from typing import NotRequired, Protocol, TypedDict
 
 from pydantic import BaseModel
-from pydantic_ai import RunContext, Tool, ModelRetry
-from typing import TypedDict, NotRequired, Protocol
-import logging
+from pydantic_ai import ModelRetry, RunContext, Tool
+
+from . import jsonrpc
 
 logger = logging.getLogger(__name__)
 

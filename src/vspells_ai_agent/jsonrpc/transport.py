@@ -12,40 +12,40 @@ Custom transports can be implemented by creating classes that implement the
 JsonRpcTransport protocol.
 """
 
-from typing import Protocol
-import logging
 import asyncio
+import logging
+from typing import Protocol
 
 logger = logging.getLogger(__name__)
 
 
 class JsonRpcTransport(Protocol):
     """Protocol defining the transport layer interface.
-    
+
     This protocol must be implemented by all transport classes. It defines
     the basic operations needed to send and receive JSON-RPC messages.
-    
+
     Example:
         ```python
         class MyTransport(JsonRpcTransport):
             async def receive_message(self) -> str:
                 # Implementation for receiving messages
                 ...
-            
+
             async def send_message(self, body: str):
                 # Implementation for sending messages
                 ...
         ```
     """
-    
+
     async def receive_message(self) -> str:
         """Receive a complete JSON-RPC message.
-        
+
         This method should block until a complete message is received.
-        
+
         Returns:
             str: The complete JSON-RPC message as a string
-            
+
         Raises:
             TransportError: If there is an error receiving the message
         """
@@ -53,10 +53,10 @@ class JsonRpcTransport(Protocol):
 
     async def send_message(self, body: str):
         """Send a JSON-RPC message.
-        
+
         Args:
             body (str): The JSON-RPC message to send
-            
+
         Raises:
             TransportError: If there is an error sending the message
         """
@@ -65,18 +65,18 @@ class JsonRpcTransport(Protocol):
 
 class JsonRpcStreamTransport:
     """Stream-based transport implementation.
-    
+
     This transport implements the JSON-RPC transport protocol for stream-based
     communication channels like stdin/stdout, Unix sockets or TCP connections.
     It uses a length-prefixed protocol where each message is preceded by headers
     specifying its length.
-    
+
     Message Format:
         Content-Length: <length>
         Content-Type: application/json; charset=utf-8
-        
+
         <message>
-    
+
     Args:
         reader (asyncio.StreamReader): The stream reader
         writer (asyncio.StreamWriter): The stream writer
@@ -84,7 +84,7 @@ class JsonRpcStreamTransport:
 
     def __init__(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         """Initialize the stream transport.
-        
+
         Args:
             reader (asyncio.StreamReader): The stream reader
             writer (asyncio.StreamWriter): The stream writer
@@ -94,12 +94,12 @@ class JsonRpcStreamTransport:
 
     async def _read_headers(self) -> dict[str, str]:
         """Read message headers from the stream.
-        
+
         Headers are read until an empty line is encountered.
-        
+
         Returns:
             dict[str, str]: Dictionary of header names to values
-            
+
         Raises:
             EOFError: If the stream ends before headers are complete
         """
@@ -113,12 +113,12 @@ class JsonRpcStreamTransport:
 
     async def receive_message(self) -> str:
         """Receive a complete JSON-RPC message from the stream.
-        
+
         Messages must be preceded by headers including Content-Length.
-        
+
         Returns:
             str: The complete JSON-RPC message
-            
+
         Raises:
             EOFError: If the stream ends before message is complete
         """
@@ -133,7 +133,7 @@ class JsonRpcStreamTransport:
 
     def _write_headers(self, headers: dict[str, str]):
         """Write message headers to the stream.
-        
+
         Args:
             headers (dict[str, str]): Headers to write
         """
@@ -143,13 +143,13 @@ class JsonRpcStreamTransport:
 
     async def send_message(self, body: str):
         """Send a JSON-RPC message over the stream.
-        
+
         The message will be preceded by appropriate headers including
         Content-Length and Content-Type.
-        
+
         Args:
             body (str): The JSON-RPC message to send
-            
+
         Raises:
             ConnectionError: If there is an error writing to the stream
         """

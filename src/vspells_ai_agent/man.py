@@ -1,5 +1,7 @@
-from pydantic_ai import RunContext, ModelRetry
 import asyncio
+
+from pydantic_ai import ModelRetry, RunContext
+
 
 async def man(ctx: RunContext, page: str) -> str:
     """Reads the man page for a function"""

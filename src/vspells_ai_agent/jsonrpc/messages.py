@@ -13,20 +13,21 @@ References:
     JSON-RPC 2.0 Specification: https://www.jsonrpc.org/specification
 """
 
-from typing import TypedDict, Literal, NotRequired
+from typing import Literal, NotRequired, TypedDict
 
 
 class JsonRpcNotification(TypedDict):
     """A JSON-RPC notification message.
-    
+
     Notifications are one-way messages that do not require a response.
     They are similar to requests but do not include an id field.
-    
+
     Fields:
         jsonrpc: Must be exactly "2.0"
         method: The name of the method to be invoked
         params: Optional positional or named parameters (default: None)
     """
+
     jsonrpc: Literal["2.0"]
     method: str
     params: NotRequired[list | dict]
@@ -34,16 +35,17 @@ class JsonRpcNotification(TypedDict):
 
 class JsonRpcRequest(TypedDict):
     """A JSON-RPC request message.
-    
+
     Requests are messages that require a response. The response will
     contain the same id as the request.
-    
+
     Fields:
         jsonrpc: Must be exactly "2.0"
         method: The name of the method to be invoked
         params: Optional positional or named parameters (default: None)
         id: Request identifier that will be echoed back in the response
     """
+
     jsonrpc: Literal["2.0"]
     method: str
     params: NotRequired[list | dict]
@@ -52,15 +54,16 @@ class JsonRpcRequest(TypedDict):
 
 class JsonRpcResult(TypedDict):
     """A JSON-RPC success response message.
-    
+
     Success responses contain the result of a method call and the id
     of the original request.
-    
+
     Fields:
         jsonrpc: Must be exactly "2.0"
         result: The result of the method call
         id: The id from the original request
     """
+
     jsonrpc: Literal["2.0"]
     result: dict | list | str | int | float | bool | None
     id: str | int
@@ -68,15 +71,16 @@ class JsonRpcResult(TypedDict):
 
 class JsonRpcError(TypedDict):
     """A JSON-RPC error object.
-    
+
     Error objects describe the error that occurred when processing
     a request.
-    
+
     Fields:
         code: The error code (see error code constants below)
         message: A short description of the error
         data: Optional additional error information (default: None)
     """
+
     code: int
     message: str
     data: NotRequired[dict | list]
@@ -84,22 +88,25 @@ class JsonRpcError(TypedDict):
 
 class JsonRpcErrorResponse(TypedDict):
     """A JSON-RPC error response message.
-    
+
     Error responses indicate that an error occurred while processing
     the request. They contain an error object and the id of the
     original request.
-    
+
     Fields:
         jsonrpc: Must be exactly "2.0"
         error: The error that occurred
         id: The id from the original request, or null if the id couldn't be determined
     """
+
     jsonrpc: Literal["2.0"]
     error: JsonRpcError
     id: str | int | None
 
 
-JsonRpcMessage = JsonRpcRequest | JsonRpcNotification | JsonRpcResult | JsonRpcErrorResponse
+JsonRpcMessage = (
+    JsonRpcRequest | JsonRpcNotification | JsonRpcResult | JsonRpcErrorResponse
+)
 """Union type of all possible JSON-RPC message types."""
 
 

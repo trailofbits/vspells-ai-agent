@@ -1,35 +1,22 @@
-from . import jsonrpc
-from . import prompts
-from . import lsp_client
-from . import man
-
 import asyncio
-from typing import TypedDict, Sequence
-from dataclasses import dataclass, field
 import logging
-
-from pydantic_ai import Agent, RunContext, ModelRetry, Tool
-from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
-from pydantic_ai.messages import ModelMessage
-
-from pydantic_graph import BaseNode, GraphRunContext, End, Graph
+from dataclasses import dataclass, field
+from typing import Sequence
 
 import logfire
+from pydantic_ai import Agent, ModelRetry, RunContext, Tool
+from pydantic_ai.common_tools.duckduckgo import duckduckgo_search_tool
+from pydantic_ai.messages import ModelMessage
+from pydantic_graph import BaseNode, End, Graph, GraphRunContext
 
-
-class Position(TypedDict):
-    line: int
-    character: int
-
-
-class Range(TypedDict):
-    start: Position
-    end: Position
+from . import jsonrpc, lsp_client, man, prompts
 
 
 class VastClient:
     @jsonrpc.method
-    async def get_function_model(self, *, functionName: str) -> prompts.FunctionModel: ...  # type: ignore
+    async def get_function_model(
+        self, *, functionName: str
+    ) -> prompts.FunctionModel: ...  # type: ignore
 
 
 @dataclass(kw_only=True)
@@ -115,7 +102,7 @@ class AnalysisService:
         functionName: str,
         numberOfArguments: int,
         filePath: str | None = None,
-        range: Range | None = None,
+        range: lsp_client.Range | None = None,
     ) -> prompts.FunctionModel:
         file_contents = ""
         usage_context = ""
@@ -128,7 +115,7 @@ class AnalysisService:
 
             if range is not None:
                 usage_context = "".join(
-                    file_lines[range["start"]["line"] - 1 : range["end"]["line"]]
+                    file_lines[range.start.line - 1 : range.end.line]
                 )
 
         ctx = Context(
@@ -153,7 +140,7 @@ class AnalysisService:
 def validate_result(
     ctx: RunContext[Context], result: prompts.AnalysisResponse
 ) -> prompts.AnalysisResponse:
-    actual_args_no = len(result["arguments"])
+    actual_args_no = len(result.arguments)
     expected_args_no = ctx.deps.expected_arg_no
     if actual_args_no > expected_args_no:
         raise ModelRetry(
@@ -164,15 +151,15 @@ def validate_result(
             f"Not enough argument types: expected {expected_args_no} but got {actual_args_no}"
         )
 
-    if result["category"] == "nonparser":
-        for i, arg in enumerate(result["arguments"]):
+    if result.category == "nonparser":
+        for i, arg in enumerate(result.arguments):
             if arg != "nodata":
                 raise ModelRetry(
                     f"The function was categorized as being nonparser but argument #{i} is categorised as being {arg}, whereas all nonparser arguments must be nodata"
                 )
-    elif result["category"] == "sink" and result["return_type"] != "nodata":
+    elif result.category == "sink" and result.return_type != "nodata":
         raise ModelRetry(
-            f"The function was categorized as being a sink but returns {result['return_type']}, whereas the return type of a sink musk always be nodata"
+            f"The function was categorized as being a sink but returns {result.return_type}, whereas the return type of a sink musk always be nodata"
         )
     return result
 

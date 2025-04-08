@@ -1,15 +1,16 @@
-from typing import Literal, TypedDict
+from typing import Literal
+
 from pydantic import BaseModel
 
 
-class FunctionModel(TypedDict):
+class FunctionModel(BaseModel):
     category: Literal["sink", "source", "parser", "nonparser", "maybeparser"]
     return_type: Literal["data", "nodata", "maybedata"]
     arguments: list[Literal["data", "nodata", "maybedata"]]
     is_stdlib: bool
 
 
-class AnalysisResponse(FunctionModel):
+class AnalysisResponse(FunctionModel, BaseModel):
     reasoning: str
 
 
@@ -266,9 +267,11 @@ Please answer the following questions about `{function_name}`:
 
 """
 
+
 class FeedbackResponse(BaseModel):
     feedback: str
     accept_analysis: bool
+
 
 def provide_feedback(
     file_contents: str,
@@ -278,14 +281,13 @@ def provide_feedback(
     file_path: str | None,
     response: AnalysisResponse,
 ):
-    reasoning = response["reasoning"]
+    reasoning = response.reasoning
     model = FunctionModel(
-        category=response["category"],
-        return_type=response["return_type"],
-        arguments=response["arguments"],
-        is_stdlib=response["is_stdlib"],
+        category=response.category,
+        return_type=response.return_type,
+        arguments=response.arguments,
+        is_stdlib=response.is_stdlib,
     )
-    import json
     return f"""Your task is to provide feedback on a machine's analysis of a specific function in a C source file.
 
 Here is the content of the source file to be analyzed:
@@ -312,11 +314,7 @@ The function being analyzed is:
 
 The machine has categorized this function as follows:
 
-<analysis>
-{
-    json.dumps(model, indent=2)
-}
-</analysis>
+{model.model_dump_json(indent=2)}
 
 The machine has provided the following reasoning for its categorization:
 
