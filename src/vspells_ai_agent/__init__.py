@@ -302,10 +302,10 @@ def main() -> None:
         logfire.instrument_anthropic()
         logging.basicConfig(handlers=[logfire.LogfireLoggingHandler()])
 
-    logging.info("Starting loop", extra={"cliArgs": vars(args)})
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    with logfire.span("Starting loop", cliArgs=vars(args)):
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
-    loop.run_until_complete(
-        _run(args.socket_path, args.clangd_path, args.disable_ddg, args.disable_man)
-    )
+        loop.run_until_complete(
+            _run(args.socket_path, args.clangd_path, args.disable_ddg, args.disable_man)
+        )

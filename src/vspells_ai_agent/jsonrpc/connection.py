@@ -662,6 +662,7 @@ class JsonRpcConnection:
 
     async def _receive_one_msg(self):
         msg = await self._transport.receive_message()
+
         ta = TypeAdapter[JsonRpcMessage](JsonRpcMessage)
 
         try:
