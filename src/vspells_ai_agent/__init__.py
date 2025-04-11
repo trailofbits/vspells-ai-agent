@@ -197,9 +197,14 @@ async def _run(
             jsonrpc.JsonRpcStreamTransport(clangd_proc.stdout, clangd_proc.stdin)
         )
 
-        clangd_task = asyncio.create_task(clangd.run())
+        clangd_task = clangd.run()
         clangd_client = clangd.get_client(lsp_client.LSPClient)
         tools = await lsp_client.initialize(clangd_client)
+    else:
+        clangd_client = None
+        async def do_nothing():
+            pass
+        clangd_task = do_nothing()
 
     match path.scheme:
         case "unix":
@@ -256,7 +261,7 @@ async def _run(
     )
     client.rpc_method("input", service.input_request)
 
-    await client.run()
+    await asyncio.wait([asyncio.create_task(client.run()), asyncio.create_task(clangd_task)])
 
 
 def main() -> None:
