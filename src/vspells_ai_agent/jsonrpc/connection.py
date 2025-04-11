@@ -49,6 +49,7 @@ import json
 from typing import Callable, Type, overload, Any
 from pydantic import TypeAdapter, ValidationError, validate_call
 import logging
+import logfire
 
 from .transport import JsonRpcTransport
 from .messages import (
@@ -477,7 +478,8 @@ class JsonRpcConnection:
         obj: JsonRpcMessage,
     ):
         logger.debug("Object sent", extra={"jsonRpcMsg": obj})
-        await self._transport.send_message(json.dumps(obj))
+        ta = TypeAdapter(dict[str, Any])
+        await self._transport.send_message(ta.dump_json(obj).decode())
 
     async def _send_err(self, id: int | str | None, err: JsonRpcError):
         await self._send_obj(JsonRpcErrorResponse(jsonrpc="2.0", id=id, error=err))
@@ -597,6 +599,7 @@ class JsonRpcConnection:
                 ),
             )
         except Exception as e:
+            logger.exception("Exception raised while serving request")
             await self._send_err(
                 id, JsonRpcError(message=str(e), code=JSONRPC_INTERNAL_ERROR)
             )
@@ -695,15 +698,16 @@ class JsonRpcConnection:
     async def _dispatch_messages(self):
         while True:
             msg = await self._queue.get()
-            if "id" in msg:
-                if "result" in msg:
-                    await self._handle_result(msg)
-                elif "error" in msg:
-                    await self._handle_error(msg)
+            with logfire.span("handling message", msg=msg):
+                if "id" in msg:
+                    if "result" in msg:
+                        await self._handle_result(msg)
+                    elif "error" in msg:
+                        await self._handle_error(msg)
+                    else:
+                        await self._handle_request(msg)
                 else:
-                    await self._handle_request(msg)
-            else:
-                self._handle_notification(msg)
+                    self._handle_notification(msg)
             self._queue.task_done()
 
     async def run(self):
