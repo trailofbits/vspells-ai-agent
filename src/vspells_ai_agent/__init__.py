@@ -15,6 +15,9 @@ from . import jsonrpc, lsp_client, man, prompts
 
 class VastClient:
     @jsonrpc.method
+    async def read_file(self, *, fileName: str) -> str: ...
+
+    @jsonrpc.method
     async def get_function_model(
         self, *, functionName: str
     ) -> prompts.FunctionModel: ...  # type: ignore
@@ -109,10 +112,10 @@ class AnalysisService:
         usage_context = ""
 
         if filePath is not None:
-            with open(filePath) as file:
-                file_lines = file.readlines()
-                file_lines_nos = map(lambda x: f"{x[0]}: {x[1]}", enumerate(file_lines))
-                file_contents = "    ".join(file_lines_nos)
+            file = await self._client.read_file(fileName=filePath)
+            file_lines = file.splitlines(keepends=True)
+            file_lines_nos = map(lambda x: f"{x[0]}: {x[1]}", enumerate(file_lines))
+            file_contents = "    ".join(file_lines_nos)
 
             if range is not None:
                 usage_context = "".join(
